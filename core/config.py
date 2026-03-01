@@ -1,0 +1,42 @@
+import json
+from pathlib import Path
+
+CONFIG_PATH = Path.home() / ".sage" / "config.json"
+
+_DEFAULTS: dict = {
+    # Auth
+    "auth_token":    "",
+    "refresh_token": "",
+    "user_id":       "",
+    "user_email":    "",
+    "user_plan":     "pro",
+    "license_key":   "",
+    "device_id":     "",
+    "api_url":       "https://sage-api-efi8.onrender.com",
+    # Model provider
+    "provider": "openai",
+    # OpenAI
+    "openai_api_key": "",
+    "openai_model": "gpt-4o-mini",
+    # Ollama
+    "ollama_host": "http://localhost:11434",
+    "ollama_model": "",
+    # LM Studio
+    "lmstudio_base_url": "http://127.0.0.1:1234/v1",
+    "lmstudio_model": "",
+}
+
+
+def load() -> dict:
+    if CONFIG_PATH.exists():
+        try:
+            data = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+            return {**_DEFAULTS, **data}
+        except Exception:
+            pass
+    return dict(_DEFAULTS)
+
+
+def save(data: dict) -> None:
+    CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    CONFIG_PATH.write_text(json.dumps(data, indent=2), encoding="utf-8")

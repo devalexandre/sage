@@ -1,0 +1,90 @@
+============================================================
+  SAGE — Installation Guide for Windows
+============================================================
+
+REQUIREMENTS
+------------
+  - Windows 10 or newer
+  - Python 3.11 or newer  →  https://www.python.org/downloads/
+    (check "Add Python to PATH" during installation)
+  - An OpenAI API key     →  https://platform.openai.com/api-keys
+
+
+STEP 1 — Install the wheel
+--------------------------
+  Open Command Prompt (cmd) or PowerShell and run:
+
+    pip install sage-0.1.0-py3-none-any.whl
+
+
+STEP 2 — Run Sage
+-----------------
+  sage
+
+  A purple "S" icon will appear in the system tray (bottom-right corner).
+  - Left-click  → open / close the Sage popup
+  - Right-click → Open Sage / Settings / Quit
+
+  TIP: If the icon is hidden, click the  ^  arrow in the taskbar
+       to expand the notification area.
+
+
+STEP 3 — Configure your OpenAI key and model
+---------------------------------------------
+  Right-click the tray icon → Settings → OpenAI section.
+
+    API Key  →  paste your key (sk-…) and click Save
+    Model    →  choose the model you want to use
+
+  The key is stored locally in  %USERPROFILE%\.sage\config.json
+  and never shared outside your machine.
+
+  You can get a key at:  https://platform.openai.com/api-keys
+
+
+STEP 4 — (Optional) Start with system
+--------------------------------------
+  Right-click the tray icon → Settings → General → enable "Start with system".
+
+  This adds Sage to the Windows startup registry key:
+    HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run
+
+  To disable manually: open regedit, navigate to the key above,
+  and delete the "Sage" entry.
+
+
+USAGE
+-----
+  Type anything in the popup and press Enter (or →).
+
+    No question mark  →  Sage memorizes the note
+      e.g.  "Project deadline is March 15th"
+
+    Ends with ?  →  Sage searches its memory and answers
+      e.g.  "When is the project deadline?"
+
+  Press Esc to close the popup.
+
+
+DATA STORAGE
+------------
+  Everything is stored locally. No cloud sync.
+
+    %USERPROFILE%\.sage\config.json   — API key and model preference
+    %USERPROFILE%\.sage\sage.db       — Agno learning database
+    %USERPROFILE%\.sage\history.db    — Raw entry log
+
+
+UNINSTALL
+---------
+  1. Remove the package:
+       pip uninstall sage
+
+  2. Delete local data (optional):
+       rmdir /s /q %USERPROFILE%\.sage
+
+  3. Remove autostart (if enabled):
+       Open regedit → HKCU\Software\Microsoft\Windows\CurrentVersion\Run
+       Delete the "Sage" entry.
+
+============================================================

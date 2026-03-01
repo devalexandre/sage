@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Sage
+GenericName=Knowledge Widget
+Comment=Personal knowledge widget — memorize and query notes
+Exec=sage
+Icon=sage
+Categories=Utility;Office;
+Terminal=false
+StartupNotify=false

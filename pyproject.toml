@@ -1,0 +1,27 @@
+[project]
+name = "sage"
+version = "0.1.0"
+description = "Sage - Personal Knowledge Widget"
+requires-python = ">=3.11"
+dependencies = [
+    "PySide6>=6.7.0",
+    "agno>=1.4.0",
+    "openai>=1.0.0",
+    "python-dotenv>=1.0.0",
+    "sqlalchemy>=2.0.0",
+    "cryptography>=42.0.0",
+]
+
+[project.optional-dependencies]
+# Install with: pip install sage[ollama]
+ollama = ["ollama>=0.3.0"]
+
+[project.scripts]
+sage = "app:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["."]

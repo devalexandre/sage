@@ -1,0 +1,128 @@
+name: Build
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  APP_NAME: sage
+  VERSION: "0.1.0"
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  # ── Linux AppImage ─────────────────────────────────────────────────────────
+  build-linux:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y patchelf libfuse2
+          wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
+          sudo install -m755 appimagetool-x86_64.AppImage /usr/local/bin/appimagetool
+
+      - name: Setup venv & deps
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install --upgrade pip
+          .venv/bin/pip install -e .
+          .venv/bin/pip install nuitka ordered-set zstandard pillow
+
+      - name: Generate icons
+        run: .venv/bin/python packaging/generate_icon.py
+
+      - name: Build with Nuitka
+        run: |
+          .venv/bin/python -m nuitka \
+            --onefile \
+            --enable-plugin=pyside6 \
+            --include-package=core \
+            --include-package=ui \
+            --include-package=db \
+            --output-dir=dist \
+            --output-filename=${{ env.APP_NAME }} \
+            --linux-icon=assets/sage.png \
+            app.py
+
+      - name: Package AppImage
+        run: |
+          rm -rf packaging/linux/sage.AppDir/usr
+          mkdir -p packaging/linux/sage.AppDir/usr/bin
+          cp dist/${{ env.APP_NAME }} packaging/linux/sage.AppDir/usr/bin/${{ env.APP_NAME }}
+          chmod +x packaging/linux/sage.AppDir/usr/bin/${{ env.APP_NAME }}
+          cp assets/sage.png packaging/linux/sage.AppDir/sage.png
+          ARCH=x86_64 appimagetool packaging/linux/sage.AppDir dist/Sage-${{ env.VERSION }}-x86_64.AppImage
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-build
+          path: |
+            dist/${{ env.APP_NAME }}
+            dist/Sage-${{ env.VERSION }}-x86_64.AppImage
+
+  # ── Windows exe ────────────────────────────────────────────────────────────
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Setup venv & deps
+        run: |
+          python -m venv .venv
+          .venv\Scripts\pip install --upgrade pip
+          .venv\Scripts\pip install -e .
+          .venv\Scripts\pip install nuitka ordered-set zstandard pillow
+
+      - name: Generate icons
+        run: .venv\Scripts\python packaging\generate_icon.py
+
+      - name: Build with Nuitka
+        run: |
+          .venv\Scripts\python -m nuitka `
+            --onefile `
+            --enable-plugin=pyside6 `
+            --include-package=core `
+            --include-package=ui `
+            --include-package=db `
+            --output-dir=dist `
+            --output-filename=${{ env.APP_NAME }}.exe `
+            --windows-icon-from-ico=assets\sage.ico `
+            --windows-disable-console `
+            app.py
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-build
+          path: dist/${{ env.APP_NAME }}.exe
+
+  # ── GitHub Release (only on tag push) ──────────────────────────────────────
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build-linux, build-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/linux-build/Sage-${{ env.VERSION }}-x86_64.AppImage
+            artifacts/windows-build/${{ env.APP_NAME }}.exe
+          generate_release_notes: true

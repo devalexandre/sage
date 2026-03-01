@@ -1,0 +1,79 @@
+============================================================
+  SAGE — Installation Guide for Linux
+============================================================
+
+REQUIREMENTS
+------------
+  - Python 3.11 or newer
+  - pip
+  - A desktop environment with system tray support
+    (KDE Plasma, XFCE, GNOME + AppIndicator extension)
+  - An OpenAI API key  →  https://platform.openai.com/api-keys
+
+
+STEP 1 — Install the wheel
+--------------------------
+  pip install sage-0.1.0-py3-none-any.whl
+
+
+STEP 2 — Run Sage
+-----------------
+  sage
+
+  A purple "S" icon will appear in your system tray.
+  - Left-click  → open / close the Sage popup
+  - Right-click → Open Sage / Settings / Quit
+
+
+STEP 3 — Configure your OpenAI key and model
+---------------------------------------------
+  Right-click the tray icon → Settings → OpenAI section.
+
+    API Key  →  paste your key (sk-…) and click Save
+    Model    →  choose the model you want to use
+
+  The key is stored locally in  ~/.sage/config.json
+  and never shared outside your machine.
+
+  You can get a key at:  https://platform.openai.com/api-keys
+
+
+STEP 4 — (Optional) Start with system
+--------------------------------------
+  Right-click the tray icon → Settings → General → enable "Start with system".
+
+  Supported on GNOME, KDE Plasma, XFCE, and any XDG-compliant desktop.
+
+  GNOME note: you may need the "AppIndicator and KStatusNotifierItem"
+  extension (install via GNOME Extensions) for the tray icon to appear.
+
+
+USAGE
+-----
+  Type anything in the popup and press Enter (or →).
+
+    No question mark  →  Sage memorizes the note
+      e.g.  "Client X prefers contact via WhatsApp"
+
+    Ends with ?  →  Sage searches its memory and answers
+      e.g.  "How does client X prefer to be contacted?"
+
+  Press Esc to close the popup.
+
+
+DATA STORAGE
+------------
+  Everything is stored locally. No cloud sync.
+
+    ~/.sage/config.json   — API key and model preference
+    ~/.sage/sage.db       — Agno learning database
+    ~/.sage/history.db    — Raw entry log
+
+
+UNINSTALL
+---------
+  pip uninstall sage
+  rm -rf ~/.sage
+  rm -f ~/.config/autostart/sage.desktop
+
+============================================================
