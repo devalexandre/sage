@@ -100,6 +100,7 @@ def _get_agent() -> Agent:
         if knowledge is not None:
             agent_kwargs["knowledge"] = knowledge
             agent_kwargs["search_knowledge"] = True
+            agent_kwargs["add_knowledge_to_context"] = True
 
         _agent = Agent(**agent_kwargs)
     return _agent

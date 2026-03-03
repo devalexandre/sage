@@ -1,7 +1,7 @@
 # Maintainer: ProgSphinx <progsphp@gmail.com>
 pkgname=sage
 pkgver=0.1.0
-pkgrel=4
+pkgrel=5
 pkgdesc="Personal knowledge widget - memorize and query notes via AI"
 arch=('x86_64')
 url="https://progsphinx.gumroad.com/l/bwobty"

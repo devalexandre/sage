@@ -3,7 +3,7 @@ PYTHON  := $(VENV)/bin/python
 PIP     := $(VENV)/bin/pip
 APPNAME := sage
 VERSION := 0.1.0
-PKGREL  := 4
+PKGREL  := 5
 
 .PHONY: help setup build build-linux build-windows build-deb build-arch install run icon clean
 
