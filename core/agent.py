@@ -43,6 +43,15 @@ def _build_model(conf: dict):
             base_url=conf.get("lmstudio_base_url", "http://127.0.0.1:1234/v1"),
         )
 
+    if provider == "vllm":
+        from agno.models.vllm import VLLM
+        api_key = conf.get("vllm_api_key", "").strip() or None
+        return VLLM(
+            id=conf.get("vllm_model", "") or "meta-llama/Llama-3.1-8B-Instruct",
+            base_url=conf.get("vllm_base_url", "http://localhost:8000/v1"),
+            api_key=api_key,
+        )
+
     # Default: OpenAI
     api_key = conf.get("openai_api_key", "").strip()
     if api_key:

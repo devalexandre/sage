@@ -85,6 +85,40 @@ jobs:
             dist/Sage-${{ env.VERSION }}-x86_64.AppImage
             dist/${{ env.APP_NAME }}_${{ env.VERSION }}_amd64.deb
 
+  # ── Arch Linux package ──────────────────────────────────────────────────
+  build-arch:
+    needs: build-linux
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: linux-build
+          path: dist
+
+      - name: Build .pkg.tar.zst
+        run: |
+          chmod +x dist/${{ env.APP_NAME }}
+          rm -rf dist/arch-staging
+          mkdir -p dist/arch-staging
+          cp packaging/linux/arch/PKGBUILD dist/arch-staging/
+          cp packaging/linux/arch/sage.install dist/arch-staging/
+          cp dist/${{ env.APP_NAME }} dist/arch-staging/${{ env.APP_NAME }}
+          cp assets/sage.png dist/arch-staging/sage.png
+          cp packaging/linux/sage.AppDir/sage.desktop dist/arch-staging/sage.desktop
+          # makepkg cannot run as root — create a build user
+          useradd -m builder
+          chown -R builder:builder dist/arch-staging
+          cd dist/arch-staging && su builder -c "makepkg -f"
+          cp dist/arch-staging/${{ env.APP_NAME }}-${{ env.VERSION }}-*-x86_64.pkg.tar.zst dist/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: arch-build
+          path: dist/${{ env.APP_NAME }}-${{ env.VERSION }}-*-x86_64.pkg.tar.zst
+
   # ── Windows exe ────────────────────────────────────────────────────────────
   build-windows:
     runs-on: windows-latest
@@ -199,7 +233,7 @@ jobs:
   # ── GitHub Release (only on tag push) ──────────────────────────────────────
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [build-linux, build-windows, build-macos]
+    needs: [build-linux, build-arch, build-windows, build-macos]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -212,6 +246,7 @@ jobs:
           files: |
             artifacts/linux-build/Sage-${{ env.VERSION }}-x86_64.AppImage
             artifacts/linux-build/${{ env.APP_NAME }}_${{ env.VERSION }}_amd64.deb
+            artifacts/arch-build/${{ env.APP_NAME }}-${{ env.VERSION }}-*-x86_64.pkg.tar.zst
             artifacts/windows-build/${{ env.APP_NAME }}.exe
             artifacts/macos-build/Sage-${{ env.VERSION }}-macOS.dmg
           generate_release_notes: true

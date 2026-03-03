@@ -5,9 +5,16 @@ Uses only stdlib (urllib) — no extra dependencies.
 
 import json
 import platform
+import ssl
 import urllib.error
 import urllib.request
 from typing import Any
+
+try:
+    import certifi
+    _SSL_CTX = ssl.create_default_context(cafile=certifi.where())
+except ImportError:
+    _SSL_CTX = ssl.create_default_context()
 
 from core import config as cfg
 
@@ -84,7 +91,7 @@ class AuthClient:
             req.add_header("Authorization", f"Bearer {token}")
 
         try:
-            with urllib.request.urlopen(req, timeout=120) as resp:
+            with urllib.request.urlopen(req, timeout=120, context=_SSL_CTX) as resp:
                 return json.loads(resp.read())
         except urllib.error.HTTPError as e:
             try:

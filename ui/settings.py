@@ -1,4 +1,3 @@
-import importlib.util
 import json
 import platform
 import sys
@@ -17,6 +16,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -35,29 +35,12 @@ OPENAI_MODELS = [
 ]
 
 
-# ── provider availability checks ──────────────────────────────────────────────
-
-def _ollama_available() -> bool:
-    """True if the 'ollama' Python package is installed."""
-    return importlib.util.find_spec("ollama") is not None
-
-
-def _lmstudio_available() -> bool:
-    """True if an LM Studio server is reachable at the configured (or default) URL."""
-    base_url = cfg.load().get("lmstudio_base_url", "http://127.0.0.1:1234/v1")
-    url = base_url.rstrip("/") + "/models"
-    try:
-        urllib.request.urlopen(url, timeout=1)
-        return True
-    except Exception:
-        return False
-
-
-# Each entry: (display label, config key, availability_fn | None)
+# Each entry: (display label, config key)
 _ALL_PROVIDERS = [
-    ("OpenAI",    "openai",    None),
-    ("Ollama",    "ollama",    _ollama_available),
-    ("LM Studio", "lmstudio",  _lmstudio_available),
+    ("OpenAI",     "openai"),
+    ("Ollama",     "ollama"),
+    ("LM Studio",  "lmstudio"),
+    ("vLLM",       "vllm"),
 ]
 
 
@@ -77,6 +60,13 @@ def _fetch_lmstudio_models(base_url: str) -> list[str]:
     return [m["id"] for m in data.get("data", [])]
 
 
+def _fetch_vllm_models(base_url: str) -> list[str]:
+    url = base_url.rstrip("/") + "/models"
+    with urllib.request.urlopen(url, timeout=4) as resp:
+        data = json.loads(resp.read())
+    return [m["id"] for m in data.get("data", [])]
+
+
 class _ModelFetcher(QObject):
     done  = Signal(list)
     error = Signal(str)
@@ -90,6 +80,8 @@ class _ModelFetcher(QObject):
         try:
             if self._provider == "ollama":
                 models = _fetch_ollama_models(self._url)
+            elif self._provider == "vllm":
+                models = _fetch_vllm_models(self._url)
             else:
                 models = _fetch_lmstudio_models(self._url)
             self.done.emit(models)
@@ -223,7 +215,6 @@ class SageSettings(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setFixedWidth(360)
         self._thread: QThread | None = None
-        # list of (label, key) that are currently shown in the combo
         self._visible_providers: list[tuple[str, str]] = []
         self._build_ui()
 
@@ -244,17 +235,17 @@ class SageSettings(QWidget):
         outer.addWidget(card)
 
         layout = QVBoxLayout(card)
-        layout.setContentsMargins(16, 14, 16, 16)
-        layout.setSpacing(10)
+        layout.setContentsMargins(12, 10, 12, 12)
+        layout.setSpacing(8)
 
-        # title
+        # title bar
         title_row = QHBoxLayout()
         title = QLabel("Settings")
         title.setFont(QFont("Inter", 13, QFont.Weight.Bold))
         title.setStyleSheet(f"color: {_TEXT};")
         title_row.addWidget(title)
         title_row.addStretch()
-        close_btn = QPushButton("×")
+        close_btn = QPushButton("\u00d7")
         close_btn.setFixedSize(22, 22)
         close_btn.setStyleSheet(f"""
             QPushButton {{ color: {_MUTED}; background: transparent; border: none; font-size: 16px; }}
@@ -264,23 +255,35 @@ class SageSettings(QWidget):
         title_row.addWidget(close_btn)
         layout.addLayout(title_row)
 
-        layout.addWidget(_separator())
+        # tabs
+        self._tabs = QTabWidget()
+        self._tabs.setStyleSheet(_tab_style())
+        layout.addWidget(self._tabs)
 
-        # General
-        layout.addWidget(_section_label("General"))
+        self._tabs.addTab(self._build_general_tab(), "General")
+        self._tabs.addTab(self._build_provider_tab(), "Provider")
+        self._tabs.addTab(self._build_docs_tab(), "Documents")
+
+    # ── General tab ───────────────────────────────────────────────────────────
+    def _build_general_tab(self) -> QWidget:
+        tab = QWidget()
+        lay = QVBoxLayout(tab)
+        lay.setContentsMargins(8, 10, 8, 8)
+        lay.setSpacing(8)
+
         self._startup_cb = QCheckBox("Start with system")
         self._startup_cb.setChecked(_autostart_enabled())
         self._startup_cb.setStyleSheet(_checkbox_style())
         self._startup_cb.toggled.connect(_set_autostart)
-        layout.addWidget(self._startup_cb)
+        lay.addWidget(self._startup_cb)
 
-        # Hotkey
+        lay.addWidget(_separator())
+
+        lay.addWidget(_field_label("Hotkey"))
         hotkey_row = QHBoxLayout()
-        hotkey_row.addWidget(_field_label("Hotkey"))
         self._hotkey_input = _HotkeyCapture()
         self._hotkey_input.setStyleSheet(_input_style())
-        self._hotkey_input.setPlaceholderText("Press a key…")
-        self._hotkey_input.setFixedWidth(140)
+        self._hotkey_input.setPlaceholderText("Press a key\u2026")
         hotkey_row.addWidget(self._hotkey_input)
         self._hotkey_save_btn = QPushButton("Save")
         self._hotkey_save_btn.setFixedSize(50, 34)
@@ -293,23 +296,29 @@ class SageSettings(QWidget):
         """)
         self._hotkey_save_btn.clicked.connect(self._save_hotkey)
         hotkey_row.addWidget(self._hotkey_save_btn)
-        layout.addLayout(hotkey_row)
+        lay.addLayout(hotkey_row)
         self._hotkey_status = QLabel("")
         self._hotkey_status.setStyleSheet(f"color: {_GREEN}; font-size: 11px;")
-        layout.addWidget(self._hotkey_status)
+        lay.addWidget(self._hotkey_status)
 
-        layout.addWidget(_separator())
+        lay.addStretch()
+        return tab
 
-        # Provider selector
-        layout.addWidget(_section_label("Provider"))
+    # ── Provider tab ──────────────────────────────────────────────────────────
+    def _build_provider_tab(self) -> QWidget:
+        tab = QWidget()
+        lay = QVBoxLayout(tab)
+        lay.setContentsMargins(8, 10, 8, 8)
+        lay.setSpacing(8)
+
         self._provider_combo = QComboBox()
         self._provider_combo.setStyleSheet(_combo_style())
         self._provider_combo.currentIndexChanged.connect(self._on_provider_changed)
-        layout.addWidget(self._provider_combo)
+        lay.addWidget(self._provider_combo)
 
-        layout.addWidget(_separator())
+        lay.addWidget(_separator())
 
-        # ── OpenAI panel ──────────────────────────────────────────────────────
+        # ── OpenAI ────────────────────────────────────────────────────────────
         self._openai_frame = QFrame()
         olay = QVBoxLayout(self._openai_frame)
         olay.setContentsMargins(0, 0, 0, 0)
@@ -319,20 +328,13 @@ class SageSettings(QWidget):
         key_row = QHBoxLayout()
         self._key_input = QLineEdit()
         self._key_input.setEchoMode(QLineEdit.EchoMode.Password)
-        self._key_input.setPlaceholderText("sk-…")
+        self._key_input.setPlaceholderText("sk-\u2026")
         self._key_input.setStyleSheet(_input_style())
         key_row.addWidget(self._key_input)
-        self._eye_btn = QPushButton("👁")
+        self._eye_btn = QPushButton("\U0001f441")
         self._eye_btn.setFixedSize(34, 34)
         self._eye_btn.setCheckable(True)
-        self._eye_btn.setStyleSheet(f"""
-            QPushButton {{
-                background: {_SURFACE}; border: 1px solid {_BORDER};
-                border-radius: 8px; font-size: 14px;
-            }}
-            QPushButton:checked {{ border-color: {_ACCENT}; }}
-            QPushButton:hover   {{ border-color: {_TEXT}; }}
-        """)
+        self._eye_btn.setStyleSheet(_eye_btn_style())
         self._eye_btn.toggled.connect(self._toggle_key_visibility)
         key_row.addWidget(self._eye_btn)
         olay.addLayout(key_row)
@@ -345,9 +347,9 @@ class SageSettings(QWidget):
 
         self._openai_save_btn, self._openai_status = _save_row(olay)
         self._openai_save_btn.clicked.connect(self._save_openai)
-        layout.addWidget(self._openai_frame)
+        lay.addWidget(self._openai_frame)
 
-        # ── Ollama panel ──────────────────────────────────────────────────────
+        # ── Ollama ────────────────────────────────────────────────────────────
         self._ollama_frame = QFrame()
         allay = QVBoxLayout(self._ollama_frame)
         allay.setContentsMargins(0, 0, 0, 0)
@@ -364,7 +366,7 @@ class SageSettings(QWidget):
         self._ollama_model_combo = QComboBox()
         self._ollama_model_combo.setStyleSheet(_combo_style())
         ollama_model_row.addWidget(self._ollama_model_combo)
-        ollama_refresh = QPushButton("↻")
+        ollama_refresh = QPushButton("\u21bb")
         ollama_refresh.setFixedSize(34, 34)
         ollama_refresh.setToolTip("Fetch installed models from Ollama")
         ollama_refresh.setStyleSheet(_refresh_btn_style())
@@ -374,9 +376,9 @@ class SageSettings(QWidget):
 
         self._ollama_save_btn, self._ollama_status = _save_row(allay)
         self._ollama_save_btn.clicked.connect(self._save_ollama)
-        layout.addWidget(self._ollama_frame)
+        lay.addWidget(self._ollama_frame)
 
-        # ── LM Studio panel ───────────────────────────────────────────────────
+        # ── LM Studio ────────────────────────────────────────────────────────
         self._lmstudio_frame = QFrame()
         llay = QVBoxLayout(self._lmstudio_frame)
         llay.setContentsMargins(0, 0, 0, 0)
@@ -393,7 +395,7 @@ class SageSettings(QWidget):
         self._lmstudio_model_combo = QComboBox()
         self._lmstudio_model_combo.setStyleSheet(_combo_style())
         lm_model_row.addWidget(self._lmstudio_model_combo)
-        lm_refresh = QPushButton("↻")
+        lm_refresh = QPushButton("\u21bb")
         lm_refresh.setFixedSize(34, 34)
         lm_refresh.setToolTip("Fetch loaded models from LM Studio")
         lm_refresh.setStyleSheet(_refresh_btn_style())
@@ -403,19 +405,55 @@ class SageSettings(QWidget):
 
         self._lmstudio_save_btn, self._lmstudio_status = _save_row(llay)
         self._lmstudio_save_btn.clicked.connect(self._save_lmstudio)
-        layout.addWidget(self._lmstudio_frame)
+        lay.addWidget(self._lmstudio_frame)
 
-        layout.addWidget(_separator())
+        # ── vLLM ──────────────────────────────────────────────────────────────
+        self._vllm_frame = QFrame()
+        vlay = QVBoxLayout(self._vllm_frame)
+        vlay.setContentsMargins(0, 0, 0, 0)
+        vlay.setSpacing(6)
 
-        # ── Documents (RAG) panel ────────────────────────────────────────────
-        layout.addWidget(_section_label("Documents (RAG)"))
+        vlay.addWidget(_field_label("Base URL"))
+        self._vllm_url = QLineEdit()
+        self._vllm_url.setPlaceholderText("http://localhost:8000/v1")
+        self._vllm_url.setStyleSheet(_input_style())
+        vlay.addWidget(self._vllm_url)
 
-        self._docs_frame = QFrame()
-        dlay = QVBoxLayout(self._docs_frame)
-        dlay.setContentsMargins(0, 0, 0, 0)
+        vlay.addWidget(_field_label("API Key (optional)"))
+        self._vllm_key = QLineEdit()
+        self._vllm_key.setEchoMode(QLineEdit.EchoMode.Password)
+        self._vllm_key.setPlaceholderText("Leave blank if not required")
+        self._vllm_key.setStyleSheet(_input_style())
+        vlay.addWidget(self._vllm_key)
+
+        vlay.addWidget(_field_label("Model"))
+        vllm_model_row = QHBoxLayout()
+        self._vllm_model_combo = QComboBox()
+        self._vllm_model_combo.setEditable(True)
+        self._vllm_model_combo.setStyleSheet(_combo_style())
+        vllm_model_row.addWidget(self._vllm_model_combo)
+        vllm_refresh = QPushButton("\u21bb")
+        vllm_refresh.setFixedSize(34, 34)
+        vllm_refresh.setToolTip("Fetch models from vLLM server")
+        vllm_refresh.setStyleSheet(_refresh_btn_style())
+        vllm_refresh.clicked.connect(self._refresh_vllm)
+        vllm_model_row.addWidget(vllm_refresh)
+        vlay.addLayout(vllm_model_row)
+
+        self._vllm_save_btn, self._vllm_status = _save_row(vlay)
+        self._vllm_save_btn.clicked.connect(self._save_vllm)
+        lay.addWidget(self._vllm_frame)
+
+        lay.addStretch()
+        return tab
+
+    # ── Documents tab ─────────────────────────────────────────────────────────
+    def _build_docs_tab(self) -> QWidget:
+        tab = QWidget()
+        dlay = QVBoxLayout(tab)
+        dlay.setContentsMargins(8, 10, 8, 8)
         dlay.setSpacing(6)
 
-        # Documents folder
         dlay.addWidget(_field_label("Documents Folder"))
         docs_row = QHBoxLayout()
         self._docs_path_input = QLineEdit()
@@ -430,7 +468,6 @@ class SageSettings(QWidget):
         docs_row.addWidget(docs_browse)
         dlay.addLayout(docs_row)
 
-        # Embedder provider
         dlay.addWidget(_field_label("Embedder Provider"))
         self._embed_provider_combo = QComboBox()
         self._embed_provider_combo.addItems(["OpenAI", "Ollama"])
@@ -438,28 +475,24 @@ class SageSettings(QWidget):
         self._embed_provider_combo.currentIndexChanged.connect(self._on_embed_provider_changed)
         dlay.addWidget(self._embed_provider_combo)
 
-        # Embedder model
         dlay.addWidget(_field_label("Embedder Model"))
         self._embed_model_input = QLineEdit()
         self._embed_model_input.setPlaceholderText("text-embedding-3-small")
         self._embed_model_input.setStyleSheet(_input_style())
         dlay.addWidget(self._embed_model_input)
 
-        # Embedding dimensions
         dlay.addWidget(_field_label("Embedding Dimensions"))
         self._embed_dims_input = QLineEdit()
         self._embed_dims_input.setPlaceholderText("1536")
         self._embed_dims_input.setStyleSheet(_input_style())
         dlay.addWidget(self._embed_dims_input)
 
-        # Qdrant URL
         dlay.addWidget(_field_label("Qdrant URL"))
         self._qdrant_url_input = QLineEdit()
         self._qdrant_url_input.setPlaceholderText("https://your-cluster.qdrant.io:6333")
         self._qdrant_url_input.setStyleSheet(_input_style())
         dlay.addWidget(self._qdrant_url_input)
 
-        # Qdrant API Key
         dlay.addWidget(_field_label("Qdrant API Key"))
         qdrant_key_row = QHBoxLayout()
         self._qdrant_key_input = QLineEdit()
@@ -470,19 +503,11 @@ class SageSettings(QWidget):
         self._qdrant_eye_btn = QPushButton("\U0001f441")
         self._qdrant_eye_btn.setFixedSize(34, 34)
         self._qdrant_eye_btn.setCheckable(True)
-        self._qdrant_eye_btn.setStyleSheet(f"""
-            QPushButton {{
-                background: {_SURFACE}; border: 1px solid {_BORDER};
-                border-radius: 8px; font-size: 14px;
-            }}
-            QPushButton:checked {{ border-color: {_ACCENT}; }}
-            QPushButton:hover   {{ border-color: {_TEXT}; }}
-        """)
+        self._qdrant_eye_btn.setStyleSheet(_eye_btn_style())
         self._qdrant_eye_btn.toggled.connect(self._toggle_qdrant_key_visibility)
         qdrant_key_row.addWidget(self._qdrant_eye_btn)
         dlay.addLayout(qdrant_key_row)
 
-        # Qdrant Collection
         dlay.addWidget(_field_label("Collection Name"))
         self._qdrant_collection_input = QLineEdit()
         self._qdrant_collection_input.setPlaceholderText("sage_documents")
@@ -491,21 +516,20 @@ class SageSettings(QWidget):
 
         self._docs_save_btn, self._docs_status = _save_row(dlay)
         self._docs_save_btn.clicked.connect(self._save_docs)
-        layout.addWidget(self._docs_frame)
+
+        dlay.addStretch()
+        return tab
 
     # ── provider combo rebuild ─────────────────────────────────────────────────
     def _rebuild_provider_combo(self, current_key: str) -> None:
-        """Re-populate the provider combo based on what is currently available."""
         self._provider_combo.blockSignals(True)
         self._provider_combo.clear()
         self._visible_providers = []
 
-        for label, key, check_fn in _ALL_PROVIDERS:
-            if check_fn is None or check_fn():
-                self._provider_combo.addItem(label)
-                self._visible_providers.append((label, key))
+        for label, key in _ALL_PROVIDERS:
+            self._provider_combo.addItem(label)
+            self._visible_providers.append((label, key))
 
-        # Restore selection (fall back to openai if the saved provider disappeared)
         idx = next((i for i, (_, k) in enumerate(self._visible_providers)
                     if k == current_key), 0)
         self._provider_combo.setCurrentIndex(idx)
@@ -520,7 +544,7 @@ class SageSettings(QWidget):
         self._openai_frame.setVisible(key == "openai")
         self._ollama_frame.setVisible(key == "ollama")
         self._lmstudio_frame.setVisible(key == "lmstudio")
-        self.adjustSize()
+        self._vllm_frame.setVisible(key == "vllm")
 
     def _current_provider_key(self) -> str:
         idx = self._provider_combo.currentIndex()
@@ -534,7 +558,7 @@ class SageSettings(QWidget):
         if self._thread and self._thread.isRunning():
             return
         status.setStyleSheet(f"color: {_MUTED}; font-size: 11px;")
-        status.setText("Fetching models…")
+        status.setText("Fetching models\u2026")
 
         self._thread  = QThread()
         self._fetcher = _ModelFetcher(provider, url)
@@ -569,10 +593,18 @@ class SageSettings(QWidget):
         url = self._lmstudio_url.text().strip() or "http://127.0.0.1:1234/v1"
         self._start_fetch("lmstudio", url, self._lmstudio_model_combo, self._lmstudio_status)
 
+    def _refresh_vllm(self) -> None:
+        url = self._vllm_url.text().strip() or "http://localhost:8000/v1"
+        self._start_fetch("vllm", url, self._vllm_model_combo, self._vllm_status)
+
     # ── key visibility ────────────────────────────────────────────────────────
     def _toggle_key_visibility(self, visible: bool) -> None:
         mode = QLineEdit.EchoMode.Normal if visible else QLineEdit.EchoMode.Password
         self._key_input.setEchoMode(mode)
+
+    def _toggle_qdrant_key_visibility(self, visible: bool) -> None:
+        mode = QLineEdit.EchoMode.Normal if visible else QLineEdit.EchoMode.Password
+        self._qdrant_key_input.setEchoMode(mode)
 
     # ── save handlers ─────────────────────────────────────────────────────────
     def _save_and_reset(self, patch: dict, status: QLabel) -> None:
@@ -600,6 +632,21 @@ class SageSettings(QWidget):
             "ollama_model": self._ollama_model_combo.currentText(),
         }, self._ollama_status)
 
+    def _save_lmstudio(self) -> None:
+        self._save_and_reset({
+            "provider":          "lmstudio",
+            "lmstudio_base_url": self._lmstudio_url.text().strip() or "http://127.0.0.1:1234/v1",
+            "lmstudio_model":    self._lmstudio_model_combo.currentText(),
+        }, self._lmstudio_status)
+
+    def _save_vllm(self) -> None:
+        self._save_and_reset({
+            "provider":      "vllm",
+            "vllm_base_url": self._vllm_url.text().strip() or "http://localhost:8000/v1",
+            "vllm_model":    self._vllm_model_combo.currentText(),
+            "vllm_api_key":  self._vllm_key.text().strip(),
+        }, self._vllm_status)
+
     def _save_hotkey(self) -> None:
         hotkey = self._hotkey_input.text().strip()
         if not hotkey:
@@ -613,14 +660,7 @@ class SageSettings(QWidget):
         from PySide6.QtCore import QTimer
         QTimer.singleShot(2000, lambda: self._hotkey_status.setText(""))
 
-    def _save_lmstudio(self) -> None:
-        self._save_and_reset({
-            "provider":          "lmstudio",
-            "lmstudio_base_url": self._lmstudio_url.text().strip() or "http://127.0.0.1:1234/v1",
-            "lmstudio_model":    self._lmstudio_model_combo.currentText(),
-        }, self._lmstudio_status)
-
-    # ── Documents (RAG) handlers ─────────────────────────────────────────────
+    # ── Documents handlers ────────────────────────────────────────────────────
     def _browse_docs_folder(self) -> None:
         folder = QFileDialog.getExistingDirectory(self, "Select documents folder")
         if folder:
@@ -630,10 +670,6 @@ class SageSettings(QWidget):
         is_ollama = self._embed_provider_combo.currentText() == "Ollama"
         placeholder = "nomic-embed-text" if is_ollama else "text-embedding-3-small"
         self._embed_model_input.setPlaceholderText(placeholder)
-
-    def _toggle_qdrant_key_visibility(self, visible: bool) -> None:
-        mode = QLineEdit.EchoMode.Normal if visible else QLineEdit.EchoMode.Password
-        self._qdrant_key_input.setEchoMode(mode)
 
     def _save_docs(self) -> None:
         embed_provider = "ollama" if self._embed_provider_combo.currentText() == "Ollama" else "openai"
@@ -659,7 +695,7 @@ class SageSettings(QWidget):
         # Hotkey
         self._hotkey_input.setText(conf.get("hotkey", "F10"))
 
-        # Rebuild provider combo (availability may have changed since last open)
+        # Provider
         self._rebuild_provider_combo(conf.get("provider", "openai"))
 
         # OpenAI
@@ -682,6 +718,15 @@ class SageSettings(QWidget):
             if self._lmstudio_model_combo.findText(saved_lm) < 0:
                 self._lmstudio_model_combo.addItem(saved_lm)
             self._lmstudio_model_combo.setCurrentText(saved_lm)
+
+        # vLLM
+        self._vllm_url.setText(conf.get("vllm_base_url", "http://localhost:8000/v1"))
+        self._vllm_key.setText(conf.get("vllm_api_key", ""))
+        saved_vllm = conf.get("vllm_model", "")
+        if saved_vllm:
+            if self._vllm_model_combo.findText(saved_vllm) < 0:
+                self._vllm_model_combo.addItem(saved_vllm)
+            self._vllm_model_combo.setCurrentText(saved_vllm)
 
         # Documents (RAG)
         self._docs_path_input.setText(conf.get("documents_path", ""))
@@ -740,7 +785,7 @@ def _field_label(text: str) -> QLabel:
 
 def _save_row(layout: QVBoxLayout) -> tuple[QPushButton, QLabel]:
     btn = QPushButton("Save")
-    btn.setFixedHeight(36)
+    btn.setFixedHeight(34)
     btn.setStyleSheet(f"""
         QPushButton {{
             background: {_ACCENT}; color: white;
@@ -763,8 +808,8 @@ def _input_style() -> str:
             color: {_TEXT};
             border: 1px solid {_BORDER};
             border-radius: 8px;
-            padding: 7px 12px;
-            font-size: 13px;
+            padding: 6px 10px;
+            font-size: 12px;
         }}
         QLineEdit:focus {{ border-color: {_ACCENT}; }}
     """
@@ -776,8 +821,8 @@ def _combo_style() -> str:
             color: {_TEXT};
             border: 1px solid {_BORDER};
             border-radius: 8px;
-            padding: 6px 12px;
-            font-size: 13px;
+            padding: 5px 10px;
+            font-size: 12px;
         }}
         QComboBox:focus {{ border-color: {_ACCENT}; }}
         QComboBox::drop-down {{ border: none; width: 24px; }}
@@ -800,6 +845,45 @@ def _refresh_btn_style() -> str:
             font-size: 16px;
         }}
         QPushButton:hover {{ border-color: {_ACCENT}; color: {_ACCENT}; }}
+    """
+
+def _eye_btn_style() -> str:
+    return f"""
+        QPushButton {{
+            background: {_SURFACE}; border: 1px solid {_BORDER};
+            border-radius: 8px; font-size: 14px;
+        }}
+        QPushButton:checked {{ border-color: {_ACCENT}; }}
+        QPushButton:hover   {{ border-color: {_TEXT}; }}
+    """
+
+def _tab_style() -> str:
+    return f"""
+        QTabWidget::pane {{
+            border: 1px solid {_BORDER};
+            border-radius: 8px;
+            background: {_BG};
+        }}
+        QTabBar::tab {{
+            background: {_SURFACE};
+            color: {_MUTED};
+            border: 1px solid {_BORDER};
+            border-bottom: none;
+            border-top-left-radius: 8px;
+            border-top-right-radius: 8px;
+            padding: 6px 14px;
+            font-size: 12px;
+            font-weight: bold;
+            margin-right: 2px;
+        }}
+        QTabBar::tab:selected {{
+            background: {_BG};
+            color: {_TEXT};
+            border-bottom: 2px solid {_ACCENT};
+        }}
+        QTabBar::tab:hover:!selected {{
+            color: {_TEXT};
+        }}
     """
 
 class _HotkeyCapture(QLineEdit):

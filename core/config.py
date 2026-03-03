@@ -24,6 +24,10 @@ _DEFAULTS: dict = {
     # LM Studio
     "lmstudio_base_url": "http://127.0.0.1:1234/v1",
     "lmstudio_model": "",
+    # vLLM
+    "vllm_base_url": "http://localhost:8000/v1",
+    "vllm_model": "",
+    "vllm_api_key": "",
     # Hotkey
     "hotkey": "F10",
     # RAG / Documents

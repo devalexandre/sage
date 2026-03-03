@@ -68,6 +68,10 @@ build-linux:    ## Build Linux AppImage via Nuitka + appimagetool
 	@echo ""
 	@echo "✓ Binary    → dist/$(APPNAME)"
 	@echo "✓ AppImage  → dist/Sage-$(VERSION)-x86_64.AppImage"
+	@if command -v makepkg >/dev/null 2>&1; then \
+		echo ""; \
+		$(MAKE) build-arch; \
+	fi
 
 # ── Windows binary + installer ────────────────────────────────────────────────
 build-windows:  ## Build Windows installer via Nuitka + Inno Setup  (run on Windows)
