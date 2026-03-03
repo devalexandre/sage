@@ -15,3 +15,4 @@ build/
 *.tar.zst
 *.whl
 *.AppImage
+packaging/
