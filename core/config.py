@@ -26,7 +26,25 @@ _DEFAULTS: dict = {
     "lmstudio_model": "",
     # Hotkey
     "hotkey": "F10",
+    # RAG / Documents
+    "qdrant_url": "",
+    "qdrant_api_key": "",
+    "qdrant_collection": "sage_documents",
+    "embed_provider": "openai",
+    "embed_model": "text-embedding-3-small",
+    "embed_dimensions": 1536,
+    "documents_path": "",
 }
+
+
+def get_documents_path(conf: dict | None = None) -> Path:
+    """Return the resolved documents folder, creating it if needed."""
+    if conf is None:
+        conf = load()
+    custom = conf.get("documents_path", "").strip()
+    p = Path(custom) if custom else Path.home() / "Documents" / "Sage"
+    p.mkdir(parents=True, exist_ok=True)
+    return p
 
 
 def load() -> dict:
