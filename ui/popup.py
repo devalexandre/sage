@@ -2,6 +2,7 @@ from PySide6.QtCore import Qt, QObject, QThread, Signal, QTimer
 from PySide6.QtGui import QFont, QKeyEvent, QTextCursor
 from PySide6.QtWidgets import (
     QApplication,
+    QFileDialog,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -46,12 +47,10 @@ class _ChatInput(QTextEdit):
     def keyPressEvent(self, event: QKeyEvent) -> None:
         if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
             if event.modifiers() & (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier):
-                # Ctrl+Enter or Shift+Enter → newline
                 self.insertPlainText("\n")
                 self._auto_grow()
                 return
             else:
-                # Plain Enter → submit
                 self.submitted.emit()
                 return
         super().keyPressEvent(event)
@@ -77,6 +76,23 @@ class _Worker(QObject):
     def run(self) -> None:
         kind, response = route(self._text)
         self.finished.emit(kind, response)
+
+
+# ── ingest worker ────────────────────────────────────────────────────────────
+class _IngestWorker(QObject):
+    finished: Signal = Signal(str, str)  # (kind, response)
+
+    def __init__(self, file_path: str) -> None:
+        super().__init__()
+        self._path = file_path
+
+    def run(self) -> None:
+        try:
+            from core.rag import ingest_file
+            msg = ingest_file(self._path)
+            self.finished.emit("memory", msg)
+        except Exception as e:
+            self.finished.emit("error", str(e))
 
 
 # ── popup window ─────────────────────────────────────────────────────────────
@@ -123,7 +139,7 @@ class SagePopup(QWidget):
         title.setStyleSheet(f"color: {_TEXT};")
         title_row.addWidget(title)
         title_row.addStretch()
-        close_btn = QPushButton("×")
+        close_btn = QPushButton("\u00d7")
         close_btn.setFixedSize(22, 22)
         close_btn.setStyleSheet(f"""
             QPushButton {{
@@ -166,8 +182,25 @@ class SagePopup(QWidget):
 
         # input row
         row = QHBoxLayout()
+
+        attach_btn = QPushButton("+")
+        attach_btn.setFixedSize(38, 38)
+        attach_btn.setToolTip("Upload document (PDF, CSV, Excel)")
+        attach_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: {_SURFACE}; color: {_TEXT};
+                border: 1px solid {_BORDER};
+                border-radius: 8px; font-size: 18px; font-weight: bold;
+            }}
+            QPushButton:hover {{ border-color: {_ACCENT}; color: {_ACCENT}; }}
+            QPushButton:pressed {{ background: {_ACCENT}; color: white; }}
+        """)
+        attach_btn.clicked.connect(self._attach_file)
+        self._attach_btn = attach_btn
+        row.addWidget(attach_btn)
+
         self._input = _ChatInput()
-        self._input.setPlaceholderText("Write something… end with ? to ask a question")
+        self._input.setPlaceholderText("Write something\u2026 end with ? to ask a question")
         self._input.setStyleSheet(f"""
             QTextEdit {{
                 background: {_SURFACE};
@@ -182,7 +215,7 @@ class SagePopup(QWidget):
         self._input.submitted.connect(self._submit)
         row.addWidget(self._input)
 
-        send_btn = QPushButton("→")
+        send_btn = QPushButton("\u2192")
         send_btn.setFixedSize(38, 38)
         send_btn.setStyleSheet(f"""
             QPushButton {{
@@ -227,11 +260,38 @@ class SagePopup(QWidget):
         self._add_bubble(response, role=kind)
         self._set_busy(False)
 
-    # ── helpers ───────────────────────────────────────────────────────────────
+    # ── attach file ──────────────────────────────────────────────────────────
+    def _attach_file(self) -> None:
+        from pathlib import Path
+
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Upload document",
+            "",
+            "Documents (*.pdf *.csv *.xls *.xlsx);;All Files (*)",
+        )
+        if not path:
+            return
+
+        self._set_busy(True)
+        self._add_bubble(f"Uploading: {Path(path).name}", role="user")
+
+        self._thread = QThread()
+        self._worker = _IngestWorker(path)
+        self._worker.moveToThread(self._thread)
+        self._thread.started.connect(self._worker.run)
+        self._worker.finished.connect(self._on_result)
+        self._worker.finished.connect(self._thread.quit)
+        self._thread.finished.connect(lambda: setattr(self, '_thread', None))
+        self._thread.finished.connect(self._thread.deleteLater)
+        self._thread.start()
+
+    # ── helpers ──────────────────────────────────────────────────────────────
     def _set_busy(self, busy: bool) -> None:
         self._input.setEnabled(not busy)
         self._send_btn.setEnabled(not busy)
-        self._status.setText("Processing…" if busy else "")
+        self._attach_btn.setEnabled(not busy)
+        self._status.setText("Processing\u2026" if busy else "")
         if not busy:
             self._input.setFocus()
 
@@ -278,7 +338,7 @@ class SagePopup(QWidget):
         sb = self._scroll.verticalScrollBar()
         sb.setValue(sb.maximum())
 
-    # ── show / hide ───────────────────────────────────────────────────────────
+    # ── show / hide ──────────────────────────────────────────────────────────
     def toggle(self) -> None:
         if self.isVisible():
             self.hide()
@@ -296,7 +356,7 @@ class SagePopup(QWidget):
         y = screen.bottom() - self.height() - 60
         self.move(x, y)
 
-    # ── keyboard ──────────────────────────────────────────────────────────────
+    # ── keyboard ─────────────────────────────────────────────────────────────
     def keyPressEvent(self, event: QKeyEvent) -> None:
         if event.key() == Qt.Key.Key_Escape:
             self.hide()

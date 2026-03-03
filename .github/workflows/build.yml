@@ -28,7 +28,7 @@ jobs:
       - name: Install system deps
         run: |
           sudo apt-get update
-          sudo apt-get install -y patchelf libfuse2 ccache
+          sudo apt-get install -y patchelf libfuse2
           wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
           sudo install -m755 appimagetool-x86_64.AppImage /usr/local/bin/appimagetool
 
@@ -38,13 +38,6 @@ jobs:
           path: dist/app.build
           key: nuitka-linux-${{ hashFiles('app.py', 'core/**', 'ui/**', 'db/**') }}
           restore-keys: nuitka-linux-
-
-      - name: Cache ccache
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/ccache
-          key: ccache-linux-${{ github.sha }}
-          restore-keys: ccache-linux-
 
       - name: Setup venv & deps
         run: |
@@ -59,7 +52,6 @@ jobs:
       - name: Build with Nuitka
         env:
           NUITKA_CACHE_DIR: dist/app.build
-          CC: ccache gcc
         run: |
           .venv/bin/python -m nuitka \
             --onefile \
@@ -165,7 +157,7 @@ jobs:
           python -m venv .venv
           .venv/bin/pip install --upgrade pip
           .venv/bin/pip install -e .
-          .venv/bin/pip install nuitka ordered-set zstandard pillow
+          .venv/bin/pip install nuitka ordered-set zstandard pillow imageio
 
       - name: Generate icons
         run: .venv/bin/python packaging/generate_icon.py
@@ -174,6 +166,7 @@ jobs:
         run: |
           .venv/bin/python -m nuitka \
             --standalone \
+            --assume-yes-for-download \
             --enable-plugin=pyside6 \
             --include-package=core \
             --include-package=ui \

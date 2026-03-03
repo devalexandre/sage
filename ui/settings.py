@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
     QComboBox,
+    QFileDialog,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -404,6 +405,94 @@ class SageSettings(QWidget):
         self._lmstudio_save_btn.clicked.connect(self._save_lmstudio)
         layout.addWidget(self._lmstudio_frame)
 
+        layout.addWidget(_separator())
+
+        # ── Documents (RAG) panel ────────────────────────────────────────────
+        layout.addWidget(_section_label("Documents (RAG)"))
+
+        self._docs_frame = QFrame()
+        dlay = QVBoxLayout(self._docs_frame)
+        dlay.setContentsMargins(0, 0, 0, 0)
+        dlay.setSpacing(6)
+
+        # Documents folder
+        dlay.addWidget(_field_label("Documents Folder"))
+        docs_row = QHBoxLayout()
+        self._docs_path_input = QLineEdit()
+        self._docs_path_input.setPlaceholderText("~/Documents/Sage")
+        self._docs_path_input.setStyleSheet(_input_style())
+        docs_row.addWidget(self._docs_path_input)
+        docs_browse = QPushButton("...")
+        docs_browse.setFixedSize(34, 34)
+        docs_browse.setStyleSheet(_refresh_btn_style())
+        docs_browse.setToolTip("Browse for folder")
+        docs_browse.clicked.connect(self._browse_docs_folder)
+        docs_row.addWidget(docs_browse)
+        dlay.addLayout(docs_row)
+
+        # Embedder provider
+        dlay.addWidget(_field_label("Embedder Provider"))
+        self._embed_provider_combo = QComboBox()
+        self._embed_provider_combo.addItems(["OpenAI", "Ollama"])
+        self._embed_provider_combo.setStyleSheet(_combo_style())
+        self._embed_provider_combo.currentIndexChanged.connect(self._on_embed_provider_changed)
+        dlay.addWidget(self._embed_provider_combo)
+
+        # Embedder model
+        dlay.addWidget(_field_label("Embedder Model"))
+        self._embed_model_input = QLineEdit()
+        self._embed_model_input.setPlaceholderText("text-embedding-3-small")
+        self._embed_model_input.setStyleSheet(_input_style())
+        dlay.addWidget(self._embed_model_input)
+
+        # Embedding dimensions
+        dlay.addWidget(_field_label("Embedding Dimensions"))
+        self._embed_dims_input = QLineEdit()
+        self._embed_dims_input.setPlaceholderText("1536")
+        self._embed_dims_input.setStyleSheet(_input_style())
+        dlay.addWidget(self._embed_dims_input)
+
+        # Qdrant URL
+        dlay.addWidget(_field_label("Qdrant URL"))
+        self._qdrant_url_input = QLineEdit()
+        self._qdrant_url_input.setPlaceholderText("https://your-cluster.qdrant.io:6333")
+        self._qdrant_url_input.setStyleSheet(_input_style())
+        dlay.addWidget(self._qdrant_url_input)
+
+        # Qdrant API Key
+        dlay.addWidget(_field_label("Qdrant API Key"))
+        qdrant_key_row = QHBoxLayout()
+        self._qdrant_key_input = QLineEdit()
+        self._qdrant_key_input.setEchoMode(QLineEdit.EchoMode.Password)
+        self._qdrant_key_input.setPlaceholderText("Your Qdrant API key")
+        self._qdrant_key_input.setStyleSheet(_input_style())
+        qdrant_key_row.addWidget(self._qdrant_key_input)
+        self._qdrant_eye_btn = QPushButton("\U0001f441")
+        self._qdrant_eye_btn.setFixedSize(34, 34)
+        self._qdrant_eye_btn.setCheckable(True)
+        self._qdrant_eye_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: {_SURFACE}; border: 1px solid {_BORDER};
+                border-radius: 8px; font-size: 14px;
+            }}
+            QPushButton:checked {{ border-color: {_ACCENT}; }}
+            QPushButton:hover   {{ border-color: {_TEXT}; }}
+        """)
+        self._qdrant_eye_btn.toggled.connect(self._toggle_qdrant_key_visibility)
+        qdrant_key_row.addWidget(self._qdrant_eye_btn)
+        dlay.addLayout(qdrant_key_row)
+
+        # Qdrant Collection
+        dlay.addWidget(_field_label("Collection Name"))
+        self._qdrant_collection_input = QLineEdit()
+        self._qdrant_collection_input.setPlaceholderText("sage_documents")
+        self._qdrant_collection_input.setStyleSheet(_input_style())
+        dlay.addWidget(self._qdrant_collection_input)
+
+        self._docs_save_btn, self._docs_status = _save_row(dlay)
+        self._docs_save_btn.clicked.connect(self._save_docs)
+        layout.addWidget(self._docs_frame)
+
     # ── provider combo rebuild ─────────────────────────────────────────────────
     def _rebuild_provider_combo(self, current_key: str) -> None:
         """Re-populate the provider combo based on what is currently available."""
@@ -531,6 +620,38 @@ class SageSettings(QWidget):
             "lmstudio_model":    self._lmstudio_model_combo.currentText(),
         }, self._lmstudio_status)
 
+    # ── Documents (RAG) handlers ─────────────────────────────────────────────
+    def _browse_docs_folder(self) -> None:
+        folder = QFileDialog.getExistingDirectory(self, "Select documents folder")
+        if folder:
+            self._docs_path_input.setText(folder)
+
+    def _on_embed_provider_changed(self, index: int) -> None:
+        is_ollama = self._embed_provider_combo.currentText() == "Ollama"
+        placeholder = "nomic-embed-text" if is_ollama else "text-embedding-3-small"
+        self._embed_model_input.setPlaceholderText(placeholder)
+
+    def _toggle_qdrant_key_visibility(self, visible: bool) -> None:
+        mode = QLineEdit.EchoMode.Normal if visible else QLineEdit.EchoMode.Password
+        self._qdrant_key_input.setEchoMode(mode)
+
+    def _save_docs(self) -> None:
+        embed_provider = "ollama" if self._embed_provider_combo.currentText() == "Ollama" else "openai"
+        dims = self._embed_dims_input.text().strip()
+        try:
+            dims_int = int(dims) if dims else 1536
+        except ValueError:
+            dims_int = 1536
+        self._save_and_reset({
+            "documents_path":    self._docs_path_input.text().strip(),
+            "embed_provider":    embed_provider,
+            "embed_model":       self._embed_model_input.text().strip() or ("text-embedding-3-small" if embed_provider == "openai" else "nomic-embed-text"),
+            "embed_dimensions":  dims_int,
+            "qdrant_url":        self._qdrant_url_input.text().strip(),
+            "qdrant_api_key":    self._qdrant_key_input.text().strip(),
+            "qdrant_collection": self._qdrant_collection_input.text().strip() or "sage_documents",
+        }, self._docs_status)
+
     # ── load fields ───────────────────────────────────────────────────────────
     def _load_fields(self) -> None:
         conf = cfg.load()
@@ -561,6 +682,17 @@ class SageSettings(QWidget):
             if self._lmstudio_model_combo.findText(saved_lm) < 0:
                 self._lmstudio_model_combo.addItem(saved_lm)
             self._lmstudio_model_combo.setCurrentText(saved_lm)
+
+        # Documents (RAG)
+        self._docs_path_input.setText(conf.get("documents_path", ""))
+        embed_prov = conf.get("embed_provider", "openai")
+        self._embed_provider_combo.setCurrentIndex(1 if embed_prov == "ollama" else 0)
+        self._embed_model_input.setText(conf.get("embed_model", ""))
+        dims = conf.get("embed_dimensions", 1536)
+        self._embed_dims_input.setText(str(dims) if dims else "")
+        self._qdrant_url_input.setText(conf.get("qdrant_url", ""))
+        self._qdrant_key_input.setText(conf.get("qdrant_api_key", ""))
+        self._qdrant_collection_input.setText(conf.get("qdrant_collection", "sage_documents"))
 
     # ── show / hide ───────────────────────────────────────────────────────────
     def toggle(self) -> None:
