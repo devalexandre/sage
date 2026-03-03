@@ -43,7 +43,7 @@ draw.text((x, y), "S", fill="white", font=font)
 # ── PNG ───────────────────────────────────────────────────────────────────────
 png_path = OUT_DIR / "sage.png"
 img.save(png_path, "PNG")
-print(f"✓ {png_path}")
+print(f"OK {png_path}")
 
 # ── ICO (Windows — multiple sizes) ────────────────────────────────────────────
 ico_sizes = [16, 32, 48, 64, 128, 256]
@@ -55,4 +55,4 @@ frames[0].save(
     sizes=[(s, s) for s in ico_sizes],
     append_images=frames[1:],
 )
-print(f"✓ {ico_path}")
+print(f"OK {ico_path}")
