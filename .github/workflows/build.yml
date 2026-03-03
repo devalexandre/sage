@@ -166,6 +166,7 @@ jobs:
         run: |
           .venv/bin/python -m nuitka \
             --standalone \
+            --assume-yes-for-download \
             --enable-plugin=pyside6 \
             --include-package=core \
             --include-package=ui \
