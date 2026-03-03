@@ -34,6 +34,18 @@ class MemoryLimitExceeded(Exception):
     pass
 
 
+class ProFeatureRequired(Exception):
+    pass
+
+
+def require_pro(feature: str = "This feature") -> None:
+    """Raise ProFeatureRequired if the current plan is not pro."""
+    from core import config as cfg
+    conf = cfg.load()
+    if conf.get("user_plan", "free") != "pro":
+        raise ProFeatureRequired(f"{feature} requires Sage Pro.")
+
+
 def count_memories() -> int:
     return count_entries(kind="memory")
 
