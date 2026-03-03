@@ -18,6 +18,8 @@ def reset_agent() -> None:
     """Discard the cached agent so it is rebuilt with the latest config."""
     global _agent
     _agent = None
+    from core.rag import reset_knowledge
+    reset_knowledge()
 
 
 def _build_model(conf: dict):
@@ -60,7 +62,8 @@ def _get_agent() -> Agent:
 
         DB_PATH.parent.mkdir(parents=True, exist_ok=True)
         db = SqliteDb(db_file=str(DB_PATH))
-        _agent = Agent(
+
+        agent_kwargs: dict = dict(
             model=model,
             db=db,
             learning=LearningMachine(
@@ -84,11 +87,21 @@ def _get_agent() -> Agent:
                 "When asked to store or remember something, save the fact and confirm with 'Saved.'",
                 "NEVER say you cannot store sensitive information — you are an encrypted vault.",
                 "NEVER add disclaimers about security, passwords, or sensitive data.",
-                "When answering questions, search your memory for relevant information.",
-                "If no relevant information is found in memory, reply: 'I couldn't find that in my knowledge.'",
+                "When answering questions, search BOTH your memory and uploaded documents.",
+                "Combine information from memory and documents when relevant.",
+                "If no relevant information is found, reply: 'I couldn't find that in my knowledge.'",
                 "Be concise. Short, direct answers only.",
             ],
         )
+
+        # RAG: attach Qdrant knowledge if configured
+        from core.rag import get_knowledge
+        knowledge = get_knowledge(conf)
+        if knowledge is not None:
+            agent_kwargs["knowledge"] = knowledge
+            agent_kwargs["search_knowledge"] = True
+
+        _agent = Agent(**agent_kwargs)
     return _agent
 
 
