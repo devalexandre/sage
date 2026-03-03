@@ -10,6 +10,7 @@ dependencies = [
     "python-dotenv>=1.0.0",
     "sqlalchemy>=2.0.0",
     "cryptography>=42.0.0",
+    "pynput>=1.7.0",
 ]
 
 [project.optional-dependencies]

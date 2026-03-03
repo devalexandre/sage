@@ -1,14 +1,14 @@
 from PySide6.QtCore import Qt, QObject, QThread, Signal, QTimer
-from PySide6.QtGui import QFont, QKeyEvent
+from PySide6.QtGui import QFont, QKeyEvent, QTextCursor
 from PySide6.QtWidgets import (
     QApplication,
     QFrame,
     QHBoxLayout,
     QLabel,
-    QLineEdit,
     QPushButton,
     QScrollArea,
     QSizePolicy,
+    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
@@ -29,6 +29,41 @@ _BLUE_TEXT = "#89B4FA"
 _RED_BG = "#2A1A1A"
 _RED_TEXT = "#F38BA8"
 _USER_TEXT = "#CDD6F4"
+
+
+# ── multiline input ──────────────────────────────────────────────────────────
+class _ChatInput(QTextEdit):
+    """QTextEdit that submits on Enter and inserts newline on Ctrl+Enter/Shift+Enter."""
+
+    submitted = Signal()
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.setAcceptRichText(False)
+        self.setFixedHeight(38)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+
+    def keyPressEvent(self, event: QKeyEvent) -> None:
+        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            if event.modifiers() & (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier):
+                # Ctrl+Enter or Shift+Enter → newline
+                self.insertPlainText("\n")
+                self._auto_grow()
+                return
+            else:
+                # Plain Enter → submit
+                self.submitted.emit()
+                return
+        super().keyPressEvent(event)
+        self._auto_grow()
+
+    def _auto_grow(self) -> None:
+        doc_height = int(self.document().size().height()) + 16
+        self.setFixedHeight(max(38, min(doc_height, 120)))
+
+    def clear(self) -> None:
+        super().clear()
+        self.setFixedHeight(38)
 
 
 # ── background worker ────────────────────────────────────────────────────────
@@ -131,10 +166,10 @@ class SagePopup(QWidget):
 
         # input row
         row = QHBoxLayout()
-        self._input = QLineEdit()
+        self._input = _ChatInput()
         self._input.setPlaceholderText("Write something… end with ? to ask a question")
         self._input.setStyleSheet(f"""
-            QLineEdit {{
+            QTextEdit {{
                 background: {_SURFACE};
                 color: {_TEXT};
                 border: 1px solid {_BORDER};
@@ -142,9 +177,9 @@ class SagePopup(QWidget):
                 padding: 8px 12px;
                 font-size: 13px;
             }}
-            QLineEdit:focus {{ border-color: {_ACCENT}; }}
+            QTextEdit:focus {{ border-color: {_ACCENT}; }}
         """)
-        self._input.returnPressed.connect(self._submit)
+        self._input.submitted.connect(self._submit)
         row.addWidget(self._input)
 
         send_btn = QPushButton("→")
@@ -170,7 +205,7 @@ class SagePopup(QWidget):
 
     # ── submit ────────────────────────────────────────────────────────────────
     def _submit(self) -> None:
-        text = self._input.text().strip()
+        text = self._input.toPlainText().strip()
         if not text:
             return
 
@@ -213,6 +248,11 @@ class SagePopup(QWidget):
         bubble = QLabel(text)
         bubble.setWordWrap(True)
         bubble.setMaximumWidth(360)
+        bubble.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+            | Qt.TextInteractionFlag.TextSelectableByKeyboard
+        )
+        bubble.setCursor(Qt.CursorShape.IBeamCursor)
         bubble.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
         bubble.setStyleSheet(f"""
             background: {bg};
@@ -220,6 +260,7 @@ class SagePopup(QWidget):
             border-radius: 8px;
             padding: 8px 12px;
             font-size: 12px;
+            selection-background-color: {_ACCENT};
         """)
 
         row = QHBoxLayout()

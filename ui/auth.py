@@ -241,6 +241,7 @@ class SageAuthDialog(QWidget):
             self.login_success.emit(result)
         else:
             self.register_success.emit(result)
+        self.close()
 
     def _on_error(self, msg: str) -> None:
         self._set_busy(False)
