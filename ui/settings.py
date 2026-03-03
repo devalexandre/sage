@@ -210,6 +210,8 @@ _RED     = "#F38BA8"
 
 # ── settings window ───────────────────────────────────────────────────────────
 class SageSettings(QWidget):
+    hotkey_changed = Signal(str)
+
     def __init__(self) -> None:
         super().__init__()
         self.setWindowFlags(
@@ -270,6 +272,30 @@ class SageSettings(QWidget):
         self._startup_cb.setStyleSheet(_checkbox_style())
         self._startup_cb.toggled.connect(_set_autostart)
         layout.addWidget(self._startup_cb)
+
+        # Hotkey
+        hotkey_row = QHBoxLayout()
+        hotkey_row.addWidget(_field_label("Hotkey"))
+        self._hotkey_input = _HotkeyCapture()
+        self._hotkey_input.setStyleSheet(_input_style())
+        self._hotkey_input.setPlaceholderText("Press a key…")
+        self._hotkey_input.setFixedWidth(140)
+        hotkey_row.addWidget(self._hotkey_input)
+        self._hotkey_save_btn = QPushButton("Save")
+        self._hotkey_save_btn.setFixedSize(50, 34)
+        self._hotkey_save_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: {_ACCENT}; color: white;
+                border-radius: 8px; font-size: 12px; font-weight: bold;
+            }}
+            QPushButton:hover {{ background: #6D28D9; }}
+        """)
+        self._hotkey_save_btn.clicked.connect(self._save_hotkey)
+        hotkey_row.addWidget(self._hotkey_save_btn)
+        layout.addLayout(hotkey_row)
+        self._hotkey_status = QLabel("")
+        self._hotkey_status.setStyleSheet(f"color: {_GREEN}; font-size: 11px;")
+        layout.addWidget(self._hotkey_status)
 
         layout.addWidget(_separator())
 
@@ -485,6 +511,19 @@ class SageSettings(QWidget):
             "ollama_model": self._ollama_model_combo.currentText(),
         }, self._ollama_status)
 
+    def _save_hotkey(self) -> None:
+        hotkey = self._hotkey_input.text().strip()
+        if not hotkey:
+            return
+        conf = cfg.load()
+        conf["hotkey"] = hotkey
+        cfg.save(conf)
+        self.hotkey_changed.emit(hotkey)
+        self._hotkey_status.setStyleSheet(f"color: {_GREEN}; font-size: 11px;")
+        self._hotkey_status.setText(f"Saved: {hotkey}")
+        from PySide6.QtCore import QTimer
+        QTimer.singleShot(2000, lambda: self._hotkey_status.setText(""))
+
     def _save_lmstudio(self) -> None:
         self._save_and_reset({
             "provider":          "lmstudio",
@@ -495,6 +534,9 @@ class SageSettings(QWidget):
     # ── load fields ───────────────────────────────────────────────────────────
     def _load_fields(self) -> None:
         conf = cfg.load()
+
+        # Hotkey
+        self._hotkey_input.setText(conf.get("hotkey", "F10"))
 
         # Rebuild provider combo (availability may have changed since last open)
         self._rebuild_provider_combo(conf.get("provider", "openai"))
@@ -627,6 +669,60 @@ def _refresh_btn_style() -> str:
         }}
         QPushButton:hover {{ border-color: {_ACCENT}; color: {_ACCENT}; }}
     """
+
+class _HotkeyCapture(QLineEdit):
+    """A QLineEdit that captures key presses and displays them as hotkey strings."""
+
+    _QT_MOD_NAMES = {
+        Qt.KeyboardModifier.ControlModifier: "Ctrl",
+        Qt.KeyboardModifier.AltModifier: "Alt",
+        Qt.KeyboardModifier.ShiftModifier: "Shift",
+        Qt.KeyboardModifier.MetaModifier: "Super",
+    }
+
+    _QT_KEY_NAMES: dict[int, str] = {
+        **{getattr(Qt.Key, f"Key_F{i}"): f"F{i}" for i in range(1, 21)},
+        Qt.Key.Key_Escape: "ESC",
+        Qt.Key.Key_Tab: "TAB",
+        Qt.Key.Key_Space: "SPACE",
+        Qt.Key.Key_Return: "ENTER",
+        Qt.Key.Key_Backspace: "BACKSPACE",
+        Qt.Key.Key_Delete: "DELETE",
+        Qt.Key.Key_Insert: "INSERT",
+        Qt.Key.Key_Home: "HOME",
+        Qt.Key.Key_End: "END",
+        Qt.Key.Key_PageUp: "PAGEUP",
+        Qt.Key.Key_PageDown: "PAGEDOWN",
+        Qt.Key.Key_Up: "UP",
+        Qt.Key.Key_Down: "DOWN",
+        Qt.Key.Key_Left: "LEFT",
+        Qt.Key.Key_Right: "RIGHT",
+        Qt.Key.Key_Print: "PRINTSCREEN",
+        Qt.Key.Key_Pause: "PAUSE",
+    }
+
+    def keyPressEvent(self, event: QKeyEvent) -> None:
+        key = event.key()
+        mods = event.modifiers()
+
+        # Ignore standalone modifier presses
+        if key in (Qt.Key.Key_Control, Qt.Key.Key_Shift, Qt.Key.Key_Alt, Qt.Key.Key_Meta):
+            return
+
+        parts: list[str] = []
+        for mod, name in self._QT_MOD_NAMES.items():
+            if mods & mod:
+                parts.append(name)
+
+        key_name = self._QT_KEY_NAMES.get(key)
+        if key_name is None:
+            text = event.text().upper()
+            key_name = text if len(text) == 1 and text.isprintable() else None
+
+        if key_name:
+            parts.append(key_name)
+            self.setText("+".join(parts))
+
 
 def _checkbox_style() -> str:
     return f"""

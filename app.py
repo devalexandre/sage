@@ -1,4 +1,7 @@
+import logging
+import logging.handlers
 import sys
+import traceback
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -9,14 +12,45 @@ from PySide6.QtWidgets import QApplication, QMessageBox, QSystemTrayIcon
 load_dotenv(Path(__file__).parent / ".env")
 load_dotenv(Path.home() / ".sage" / ".env")
 
+# ── Logging setup ────────────────────────────────────────────────────────────
+LOG_DIR = Path.home() / ".sage"
+LOG_DIR.mkdir(parents=True, exist_ok=True)
+LOG_FILE = LOG_DIR / "sage.log"
+
+_handler = logging.handlers.RotatingFileHandler(
+    LOG_FILE, maxBytes=1_000_000, backupCount=3, encoding="utf-8",
+)
+_handler.setFormatter(logging.Formatter(
+    "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+))
+logging.basicConfig(level=logging.INFO, handlers=[_handler])
+logger = logging.getLogger("sage")
+
+
+def _exception_hook(exc_type, exc_value, exc_tb):
+    """Global exception handler — log uncaught exceptions to file."""
+    if issubclass(exc_type, KeyboardInterrupt):
+        sys.__excepthook__(exc_type, exc_value, exc_tb)
+        return
+    logger.critical(
+        "Uncaught exception:\n%s",
+        "".join(traceback.format_exception(exc_type, exc_value, exc_tb)),
+    )
+
+
+sys.excepthook = _exception_hook
+
 
 def main() -> None:
+    logger.info("Sage starting...")
     app = QApplication(sys.argv)
     app.setApplicationName("Sage")
     app.setQuitOnLastWindowClosed(False)
 
     # ── Step 0: tray availability ─────────────────────────────────────────────
     if not QSystemTrayIcon.isSystemTrayAvailable():
+        logger.error("System tray is not available — exiting.")
         QMessageBox.critical(None, "Sage", "System tray is not available.")
         sys.exit(1)
 
@@ -43,6 +77,7 @@ def main() -> None:
         sys.exit(1)
 
     set_fernet(fernet)
+    logger.info("Step 1 OK: encryption loaded.")
 
     # ── Step 2: auth gate ─────────────────────────────────────────────────────
     from core import config as cfg
@@ -62,6 +97,7 @@ def main() -> None:
             return None
 
     needs_login = not _has_valid_token(conf) or _try_refresh(conf) is None
+    logger.info("Step 2: needs_login=%s", needs_login)
 
     if needs_login:
         from ui.auth import SageAuthDialog
@@ -98,17 +134,30 @@ def main() -> None:
             c["user_plan"] = result.get("plan", "free")
             cfg.save(c)
         except Exception:
-            pass  # use cached plan on failure
+            logger.warning("License sync failed: %s", traceback.format_exc())
 
     _sync_thread = QThread()
     _sync_thread.run = _sync_license  # type: ignore[method-assign]
     _sync_thread.start()
 
     # ── Step 4: tray ──────────────────────────────────────────────────────────
+    logger.info("Step 4: creating tray...")
     from ui.tray import SageTray
 
     tray = SageTray()
     tray.show()
+    logger.info("Step 4 OK: tray visible.")
+
+    # ── Step 5: global hotkey ─────────────────────────────────────────────────
+    logger.info("Step 5: starting hotkey listener...")
+    from core.hotkey import HotkeyListener
+
+    hotkey_listener = HotkeyListener(conf.get("hotkey", "F10"))
+    hotkey_listener.triggered.connect(tray._open_popup)
+    hotkey_listener.start()
+    tray._hotkey_listener = hotkey_listener  # keep reference
+    tray._settings.hotkey_changed.connect(hotkey_listener.update_hotkey)
+    logger.info("Step 5 OK: hotkey listener active.")
 
     # If no order_id saved yet, open Account dialog so user can activate
     if not conf.get("order_id"):
@@ -116,8 +165,13 @@ def main() -> None:
     else:
         tray.showMessage("Sage", "Ready. Click the icon to open.", tray.icon(), 2000)
 
+    logger.info("Sage ready — entering event loop.")
     sys.exit(app.exec())
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception:
+        logger.critical("Fatal error in main():\n%s", traceback.format_exc())
+        sys.exit(1)

@@ -3,3 +3,15 @@ __pycache__/
 *.pyc
 .env
 *.db
+*.sqlite3
+*.log
+.DS_Store
+.idea/
+.vscode/
+*.egg-info/
+dist/
+build/
+*.egg
+*.tar.zst
+*.whl
+*.AppImage
