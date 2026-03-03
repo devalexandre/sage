@@ -15,4 +15,7 @@ build/
 *.tar.zst
 *.whl
 *.AppImage
-packaging/
+# packaging binaries (scripts must be tracked)
+packaging/linux/sage.AppDir/usr/
+packaging/linux/sage.AppDir/sage.png
+packaging/linux/sage.AppDir/.DirIcon
