@@ -112,6 +112,7 @@ jobs:
           useradd -m builder
           chown -R builder:builder dist/arch-staging
           cd dist/arch-staging && su builder -c "makepkg -f"
+          cd "$GITHUB_WORKSPACE"
           cp dist/arch-staging/${{ env.APP_NAME }}-${{ env.VERSION }}-*-x86_64.pkg.tar.zst dist/
 
       - uses: actions/upload-artifact@v4
