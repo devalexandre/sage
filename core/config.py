@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
 
+VERSION = "0.1.0"
+
 CONFIG_PATH = Path.home() / ".sage" / "config.json"
 
 _DEFAULTS: dict = {

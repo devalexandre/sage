@@ -69,6 +69,12 @@ class AuthClient:
     def deactivate_device(self, access_token: str, device_id: str) -> None:
         self._delete("/license/device", {"device_id": device_id}, token=access_token)
 
+    # ── updates ────────────────────────────────────────────────────────────────
+
+    def check_update(self, current_version: str) -> dict:
+        """Check if a newer release is available. Public — no auth needed."""
+        return self._get(f"/releases/latest?current={current_version}")
+
     # ── HTTP helpers ──────────────────────────────────────────────────────────
 
     def _post(self, path: str, body: dict, token: str | None = None) -> dict:

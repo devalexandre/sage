@@ -5,7 +5,7 @@ import traceback
 from pathlib import Path
 
 from dotenv import load_dotenv
-from PySide6.QtCore import QEventLoop, QThread
+from PySide6.QtCore import QEventLoop, QObject, QThread, Signal
 from PySide6.QtWidgets import QApplication, QMessageBox, QSystemTrayIcon
 
 # Load .env from project root (fallback to home)
@@ -158,6 +158,35 @@ def main() -> None:
     tray._hotkey_listener = hotkey_listener  # keep reference
     tray._settings.hotkey_changed.connect(hotkey_listener.update_hotkey)
     logger.info("Step 5 OK: hotkey listener active.")
+
+    # ── Step 6: check for updates (background) ────────────────────────────────
+    class _UpdateSignal(QObject):
+        update_available = Signal(dict)
+
+    _update_sig = _UpdateSignal()
+
+    def _on_update(info: dict) -> None:
+        title = info.get("title") or f"Sage {info['version']}"
+        notes = info.get("notes", "")
+        msg = f"Nova versao disponivel: {title}"
+        if notes:
+            msg += f"\n{notes}"
+        tray.showMessage("Sage — Atualizacao", msg, tray.icon(), 8000)
+        logger.info("Update available: %s", info.get("version"))
+
+    _update_sig.update_available.connect(_on_update)
+
+    def _check_update() -> None:
+        try:
+            result = client.check_update(cfg.VERSION)
+            if result.get("update_available"):
+                _update_sig.update_available.emit(result)
+        except Exception:
+            logger.debug("Update check failed: %s", traceback.format_exc())
+
+    _update_thread = QThread()
+    _update_thread.run = _check_update  # type: ignore[method-assign]
+    _update_thread.start()
 
     # If no order_id saved yet, open Account dialog so user can activate
     if not conf.get("order_id"):
