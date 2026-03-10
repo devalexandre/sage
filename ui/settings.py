@@ -1,5 +1,7 @@
 import json
+import logging
 import platform
+import subprocess
 import sys
 import urllib.request
 from pathlib import Path
@@ -516,6 +518,11 @@ class SageSettings(QWidget):
         self._embed_dims_input.setPlaceholderText("1536")
         self._embed_dims_input.setStyleSheet(_input_style())
         dlay.addWidget(self._embed_dims_input)
+
+        self._qdrant_docker_cb = QCheckBox("Run Qdrant with Docker")
+        self._qdrant_docker_cb.setStyleSheet("color: #ccc; padding: 4px 0;")
+        self._qdrant_docker_cb.toggled.connect(self._on_qdrant_docker_toggled)
+        dlay.addWidget(self._qdrant_docker_cb)
 
         dlay.addWidget(_field_label("Qdrant URL"))
         self._qdrant_url_input = QLineEdit()
@@ -1101,6 +1108,66 @@ class SageSettings(QWidget):
         placeholder = "nomic-embed-text" if is_ollama else "text-embedding-3-small"
         self._embed_model_input.setPlaceholderText(placeholder)
 
+    def _on_qdrant_docker_toggled(self, checked: bool) -> None:
+        if checked:
+            self._qdrant_url_input.setText("http://localhost:6333")
+            self._qdrant_key_input.clear()
+            self._qdrant_collection_input.setText("sage_documents")
+            self._qdrant_url_input.setEnabled(False)
+            self._qdrant_key_input.setEnabled(False)
+            self._start_qdrant_docker()
+        else:
+            self._qdrant_url_input.setEnabled(True)
+            self._qdrant_key_input.setEnabled(True)
+
+    def _start_qdrant_docker(self) -> None:
+        logger = logging.getLogger("sage.settings")
+        storage = Path.home() / ".sage" / "qdrant_storage"
+        storage.mkdir(parents=True, exist_ok=True)
+
+        # Check if container already running
+        try:
+            result = subprocess.run(
+                ["docker", "ps", "--filter", "name=sage-qdrant", "--format", "{{.ID}}"],
+                capture_output=True, text=True, timeout=10,
+            )
+            if result.stdout.strip():
+                logger.info("Qdrant container already running")
+                return
+        except Exception:
+            pass
+
+        # Build docker run command (cross-platform)
+        volume = f"{storage}:/qdrant/storage"
+        if _OS != "Windows":
+            volume += ":z"
+
+        cmd = [
+            "docker", "run", "-d",
+            "--name", "sage-qdrant",
+            "-p", "6333:6333",
+            "-p", "6334:6334",
+            "-v", volume,
+            "qdrant/qdrant",
+        ]
+
+        try:
+            subprocess.Popen(
+                cmd,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                creationflags=subprocess.CREATE_NO_WINDOW if _OS == "Windows" else 0,
+            )
+            logger.info("Qdrant Docker container started")
+        except FileNotFoundError:
+            logger.error("Docker not found. Please install Docker.")
+            self._docs_status.setText("Docker not found!")
+            self._qdrant_docker_cb.setChecked(False)
+        except Exception as e:
+            logger.error("Failed to start Qdrant Docker: %s", e)
+            self._docs_status.setText(f"Docker error: {e}")
+            self._qdrant_docker_cb.setChecked(False)
+
     def _save_docs(self) -> None:
         embed_provider = "ollama" if self._embed_provider_combo.currentText() == "Ollama" else "openai"
         dims = self._embed_dims_input.text().strip()
@@ -1113,6 +1180,7 @@ class SageSettings(QWidget):
             "embed_provider":    embed_provider,
             "embed_model":       self._embed_model_input.text().strip() or ("text-embedding-3-small" if embed_provider == "openai" else "nomic-embed-text"),
             "embed_dimensions":  dims_int,
+            "qdrant_docker":     self._qdrant_docker_cb.isChecked(),
             "qdrant_url":        self._qdrant_url_input.text().strip(),
             "qdrant_api_key":    self._qdrant_key_input.text().strip(),
             "qdrant_collection": self._qdrant_collection_input.text().strip() or "sage_documents",
@@ -1170,6 +1238,8 @@ class SageSettings(QWidget):
         self._embed_model_input.setText(conf.get("embed_model", ""))
         dims = conf.get("embed_dimensions", 1536)
         self._embed_dims_input.setText(str(dims) if dims else "")
+        qdrant_docker = conf.get("qdrant_docker", False)
+        self._qdrant_docker_cb.setChecked(qdrant_docker)
         self._qdrant_url_input.setText(conf.get("qdrant_url", ""))
         self._qdrant_key_input.setText(conf.get("qdrant_api_key", ""))
         self._qdrant_collection_input.setText(conf.get("qdrant_collection", "sage_documents"))

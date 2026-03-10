@@ -229,7 +229,14 @@ jobs:
           </Package>
           "@ | Out-File -Encoding utf8 "$msixDir\AppxManifest.xml"
 
-          & "C:\Program Files (x86)\Windows Kits\10\bin\10.0.22621.0\x64\makeappx.exe" pack /d $msixDir /p "dist\Sage-${{ env.VERSION }}.msix" /o
+          # Find makeappx.exe dynamically
+          $makeappx = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin" -Recurse -Filter "makeappx.exe" |
+            Where-Object { $_.FullName -like "*x64*" } |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1 -ExpandProperty FullName
+          if (-not $makeappx) { throw "makeappx.exe not found" }
+          Write-Host "Using: $makeappx"
+          & $makeappx pack /d $msixDir /p "dist\Sage-${{ env.VERSION }}.msix" /o
 
       - uses: actions/upload-artifact@v4
         with:
