@@ -7,8 +7,6 @@ import platform
 import uuid
 from pathlib import Path
 
-from db.sqlite import count_entries
-
 _DEVICE_ID_PATH = Path.home() / ".sage" / "device_id"
 
 
@@ -47,7 +45,8 @@ def require_pro(feature: str = "This feature") -> None:
 
 
 def count_memories() -> int:
-    return count_entries(kind="memory")
+    from core.milvus_memory import count
+    return count()
 
 
 def enforce_limit() -> None:

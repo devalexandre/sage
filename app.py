@@ -188,6 +188,34 @@ def main() -> None:
     _update_thread.run = _check_update  # type: ignore[method-assign]
     _update_thread.start()
 
+    # ── Step 7: migrate SQLite → Milvus (one-time, background) ──────────────
+    def _run_migration() -> None:
+        try:
+            from core.migrate import migrate_sqlite_to_milvus
+            count = migrate_sqlite_to_milvus()
+            if count:
+                logger.info("Migration: %d memories moved to Milvus", count)
+        except Exception:
+            logger.debug("Migration failed: %s", traceback.format_exc())
+
+    _migrate_thread = QThread()
+    _migrate_thread.run = _run_migration  # type: ignore[method-assign]
+    _migrate_thread.start()
+
+    # ── Step 8: forget cleanup (background) ─────────────────────────────────
+    def _run_forget() -> None:
+        try:
+            from core.forget import run_cleanup
+            result = run_cleanup()
+            if result["memories_deleted"]:
+                logger.info("Forget cleanup: %s", result)
+        except Exception:
+            logger.debug("Forget cleanup failed: %s", traceback.format_exc())
+
+    _forget_thread = QThread()
+    _forget_thread.run = _run_forget  # type: ignore[method-assign]
+    _forget_thread.start()
+
     # If no order_id saved yet, open Account dialog so user can activate
     if not conf.get("order_id"):
         tray._account.toggle()

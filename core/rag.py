@@ -50,12 +50,16 @@ def _build_embedder(conf: dict):
 
 def _build_vector_db(conf: dict, embedder):
     from agno.vectordb.qdrant import Qdrant
+    from agno.vectordb.search import SearchType
+    from agno.knowledge.reranker.sentence_transformer import SentenceTransformerReranker
 
     return Qdrant(
         collection=conf.get("qdrant_collection", "sage_documents"),
         url=conf.get("qdrant_url", ""),
         api_key=conf.get("qdrant_api_key", "") or None,
         embedder=embedder,
+        search_type=SearchType.hybrid,
+        reranker=SentenceTransformerReranker(model="BAAI/bge-reranker-v2-m3"),
     )
 
 
@@ -80,7 +84,7 @@ def get_knowledge(conf: dict | None = None):
         _knowledge = Knowledge(
             name="sage_documents",
             vector_db=vector_db,
-            max_results=5,
+            max_results=10,
         )
         logger.info("Knowledge initialised (Qdrant at %s)", qdrant_url)
         return _knowledge
@@ -144,7 +148,12 @@ def ingest_file(file_path: str) -> str:
             ingest_path = tmp_csv
 
         # Ingest via agno Knowledge (auto-selects reader by extension)
-        knowledge.insert(path=str(ingest_path), upsert=True)
+        # Retry once on transient Qdrant errors (e.g. missing index)
+        try:
+            knowledge.insert(path=str(ingest_path), upsert=True)
+        except Exception as first_err:
+            logger.warning("First insert attempt failed, retrying: %s", first_err)
+            knowledge.insert(path=str(ingest_path), upsert=True)
 
         # Copy original to documents folder
         docs_dir = cfg.get_documents_path(conf)

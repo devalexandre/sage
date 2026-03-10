@@ -15,6 +15,8 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QListWidget,
+    QListWidgetItem,
     QPushButton,
     QTabWidget,
     QVBoxLayout,
@@ -264,6 +266,12 @@ class SageSettings(QWidget):
         self._tabs.addTab(self._build_provider_tab(), "Provider")
         self._tabs.addTab(self._build_docs_tab(), "Documents")
 
+        # Memory & Forget tabs — Pro only
+        self._memory_tab = self._build_memory_tab()
+        self._forget_tab = self._build_forget_tab()
+        self._pro_tab_indices: list[int] = []
+        self._refresh_pro_tabs()
+
     # ── General tab ───────────────────────────────────────────────────────────
     def _build_general_tab(self) -> QWidget:
         tab = QWidget()
@@ -300,6 +308,28 @@ class SageSettings(QWidget):
         self._hotkey_status = QLabel("")
         self._hotkey_status.setStyleSheet(f"color: {_GREEN}; font-size: 11px;")
         lay.addWidget(self._hotkey_status)
+
+        lay.addWidget(_separator())
+
+        lay.addWidget(_field_label("Language"))
+        self._language_combo = QComboBox()
+        self._language_combo.addItems(["pt-BR", "en", "es"])
+        self._language_combo.setStyleSheet(_combo_style())
+        lay.addWidget(self._language_combo)
+        self._lang_save_btn = QPushButton("Save")
+        self._lang_save_btn.setFixedHeight(34)
+        self._lang_save_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: {_ACCENT}; color: white;
+                border-radius: 8px; font-size: 12px; font-weight: bold;
+            }}
+            QPushButton:hover {{ background: #6D28D9; }}
+        """)
+        self._lang_save_btn.clicked.connect(self._save_language)
+        lay.addWidget(self._lang_save_btn)
+        self._lang_status = QLabel("")
+        self._lang_status.setStyleSheet(f"color: {_GREEN}; font-size: 11px;")
+        lay.addWidget(self._lang_status)
 
         lay.addStretch()
         return tab
@@ -489,7 +519,7 @@ class SageSettings(QWidget):
 
         dlay.addWidget(_field_label("Qdrant URL"))
         self._qdrant_url_input = QLineEdit()
-        self._qdrant_url_input.setPlaceholderText("https://your-cluster.qdrant.io:6333")
+        self._qdrant_url_input.setPlaceholderText("http://localhost:6333")
         self._qdrant_url_input.setStyleSheet(_input_style())
         dlay.addWidget(self._qdrant_url_input)
 
@@ -497,7 +527,7 @@ class SageSettings(QWidget):
         qdrant_key_row = QHBoxLayout()
         self._qdrant_key_input = QLineEdit()
         self._qdrant_key_input.setEchoMode(QLineEdit.EchoMode.Password)
-        self._qdrant_key_input.setPlaceholderText("Your Qdrant API key")
+        self._qdrant_key_input.setPlaceholderText("Leave blank for local Qdrant")
         self._qdrant_key_input.setStyleSheet(_input_style())
         qdrant_key_row.addWidget(self._qdrant_key_input)
         self._qdrant_eye_btn = QPushButton("\U0001f441")
@@ -519,6 +549,402 @@ class SageSettings(QWidget):
 
         dlay.addStretch()
         return tab
+
+    # ── Memory tab ───────────────────────────────────────────────────────────
+    def _build_memory_tab(self) -> QWidget:
+        tab = QWidget()
+        mlay = QVBoxLayout(tab)
+        mlay.setContentsMargins(8, 10, 8, 8)
+        mlay.setSpacing(6)
+
+        # Memory list with checkboxes
+        self._memory_list = QListWidget()
+        self._memory_list.setStyleSheet(f"""
+            QListWidget {{
+                background: {_SURFACE};
+                color: {_TEXT};
+                border: 1px solid {_BORDER};
+                border-radius: 8px;
+                font-size: 11px;
+                padding: 4px;
+            }}
+            QListWidget::item {{
+                padding: 4px 2px;
+                border-bottom: 1px solid {_BORDER};
+            }}
+            QListWidget::item:selected {{
+                background: {_ACCENT};
+            }}
+        """)
+        mlay.addWidget(self._memory_list)
+
+        # Select all / Deselect all row
+        sel_row = QHBoxLayout()
+        sel_all_btn = QPushButton("Select All")
+        sel_all_btn.setFixedHeight(28)
+        sel_all_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: {_SURFACE}; color: {_TEXT};
+                border: 1px solid {_BORDER}; border-radius: 6px;
+                font-size: 11px; padding: 0 10px;
+            }}
+            QPushButton:hover {{ border-color: {_ACCENT}; }}
+        """)
+        sel_all_btn.clicked.connect(self._select_all_memories)
+        sel_row.addWidget(sel_all_btn)
+
+        desel_btn = QPushButton("Deselect All")
+        desel_btn.setFixedHeight(28)
+        desel_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: {_SURFACE}; color: {_TEXT};
+                border: 1px solid {_BORDER}; border-radius: 6px;
+                font-size: 11px; padding: 0 10px;
+            }}
+            QPushButton:hover {{ border-color: {_ACCENT}; }}
+        """)
+        desel_btn.clicked.connect(self._deselect_all_memories)
+        sel_row.addWidget(desel_btn)
+
+        refresh_btn = QPushButton("\u21bb")
+        refresh_btn.setFixedSize(28, 28)
+        refresh_btn.setToolTip("Refresh memory list")
+        refresh_btn.setStyleSheet(_refresh_btn_style())
+        refresh_btn.clicked.connect(self._load_memories)
+        sel_row.addWidget(refresh_btn)
+        mlay.addLayout(sel_row)
+
+        # Delete selected button
+        self._mem_delete_btn = QPushButton("Delete Selected")
+        self._mem_delete_btn.setFixedHeight(34)
+        self._mem_delete_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: {_RED}; color: #1E1E2E;
+                border-radius: 8px; font-size: 12px; font-weight: bold;
+            }}
+            QPushButton:hover {{ background: #E05580; }}
+        """)
+        self._mem_delete_btn.clicked.connect(self._delete_selected_memories)
+        mlay.addWidget(self._mem_delete_btn)
+
+        self._mem_status = QLabel("")
+        self._mem_status.setStyleSheet(f"color: {_GREEN}; font-size: 11px;")
+        self._mem_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        mlay.addWidget(self._mem_status)
+
+        return tab
+
+    def _load_memories(self) -> None:
+        self._memory_list.clear()
+        try:
+            from core.milvus_memory import get_all
+            memories = get_all()
+            for mem in memories:
+                text = mem.get("content", "")
+                display = text[:120] + "..." if len(text) > 120 else text
+                item = QListWidgetItem(display)
+                item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+                item.setCheckState(Qt.CheckState.Unchecked)
+                item.setData(Qt.ItemDataRole.UserRole, mem.get("id", ""))
+                self._memory_list.addItem(item)
+            self._mem_status.setStyleSheet(f"color: {_MUTED}; font-size: 11px;")
+            self._mem_status.setText(f"{len(memories)} memories")
+        except Exception as e:
+            self._mem_status.setStyleSheet(f"color: {_RED}; font-size: 11px;")
+            self._mem_status.setText(f"Error: {e}")
+
+    def _select_all_memories(self) -> None:
+        for i in range(self._memory_list.count()):
+            self._memory_list.item(i).setCheckState(Qt.CheckState.Checked)
+
+    def _deselect_all_memories(self) -> None:
+        for i in range(self._memory_list.count()):
+            self._memory_list.item(i).setCheckState(Qt.CheckState.Unchecked)
+
+    def _delete_selected_memories(self) -> None:
+        selected_ids = []
+        for i in range(self._memory_list.count()):
+            item = self._memory_list.item(i)
+            if item.checkState() == Qt.CheckState.Checked:
+                memory_id = item.data(Qt.ItemDataRole.UserRole)
+                if memory_id:
+                    selected_ids.append(memory_id)
+
+        if not selected_ids:
+            self._mem_status.setStyleSheet(f"color: {_MUTED}; font-size: 11px;")
+            self._mem_status.setText("No memories selected.")
+            return
+
+        try:
+            conf = cfg.load()
+            if conf.get("user_plan", "free") == "pro":
+                from core.forget import mark_forgotten_memories
+                count = mark_forgotten_memories(selected_ids)
+                self._mem_status.setStyleSheet(f"color: {_GREEN}; font-size: 11px;")
+                self._mem_status.setText(f"Marked {count} as forgotten.")
+                self._load_forgotten()
+            else:
+                from core.milvus_memory import delete_by_id
+                for mid in selected_ids:
+                    delete_by_id(mid)
+                from core.agent import reset_agent
+                reset_agent()
+                self._mem_status.setStyleSheet(f"color: {_GREEN}; font-size: 11px;")
+                self._mem_status.setText(f"Deleted {len(selected_ids)} memories.")
+
+            self._load_memories()
+            from PySide6.QtCore import QTimer
+            QTimer.singleShot(3000, lambda: self._mem_status.setText(""))
+        except Exception as e:
+            self._mem_status.setStyleSheet(f"color: {_RED}; font-size: 11px;")
+            self._mem_status.setText(f"Error: {e}")
+
+    # ── Pro-only tabs management ─────────────────────────────────────────────
+    def _refresh_pro_tabs(self) -> None:
+        """Add or remove Memory/Forget tabs based on plan."""
+        for idx in reversed(self._pro_tab_indices):
+            self._tabs.removeTab(idx)
+        self._pro_tab_indices.clear()
+
+        conf = cfg.load()
+        if conf.get("user_plan", "free") == "pro":
+            i = self._tabs.addTab(self._memory_tab, "Memory")
+            self._pro_tab_indices.append(i)
+            i = self._tabs.addTab(self._forget_tab, "Forget")
+            self._pro_tab_indices.append(i)
+
+    # ── Forget tab (Pro only) ─────────────────────────────────────────────────
+    def _build_forget_tab(self) -> QWidget:
+        tab = QWidget()
+        flay = QVBoxLayout(tab)
+        flay.setContentsMargins(8, 10, 8, 8)
+        flay.setSpacing(6)
+
+        flay.addWidget(_field_label("Retention Period (days)"))
+        ret_row = QHBoxLayout()
+        self._retention_days_input = QLineEdit()
+        self._retention_days_input.setPlaceholderText("30")
+        self._retention_days_input.setStyleSheet(_input_style())
+        ret_row.addWidget(self._retention_days_input)
+        ret_save = QPushButton("Save")
+        ret_save.setFixedSize(50, 34)
+        ret_save.setStyleSheet(f"""
+            QPushButton {{
+                background: {_ACCENT}; color: white;
+                border-radius: 8px; font-size: 12px; font-weight: bold;
+            }}
+            QPushButton:hover {{ background: #6D28D9; }}
+        """)
+        ret_save.clicked.connect(self._save_retention)
+        ret_row.addWidget(ret_save)
+        flay.addLayout(ret_row)
+        self._retention_status = QLabel("")
+        self._retention_status.setStyleSheet(f"color: {_GREEN}; font-size: 11px;")
+        self._retention_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        flay.addWidget(self._retention_status)
+
+        flay.addWidget(_separator())
+
+        flay.addWidget(_field_label("Forgotten Memories (pending permanent deletion)"))
+
+        self._forgotten_list = QListWidget()
+        self._forgotten_list.setStyleSheet(f"""
+            QListWidget {{
+                background: {_SURFACE};
+                color: {_TEXT};
+                border: 1px solid {_BORDER};
+                border-radius: 8px;
+                font-size: 11px;
+                padding: 4px;
+            }}
+            QListWidget::item {{
+                padding: 4px 2px;
+                border-bottom: 1px solid {_BORDER};
+            }}
+            QListWidget::item:selected {{
+                background: {_ACCENT};
+            }}
+        """)
+        flay.addWidget(self._forgotten_list)
+
+        btn_row = QHBoxLayout()
+        sel_all = QPushButton("Select All")
+        sel_all.setFixedHeight(28)
+        sel_all.setStyleSheet(f"""
+            QPushButton {{
+                background: {_SURFACE}; color: {_TEXT};
+                border: 1px solid {_BORDER}; border-radius: 6px;
+                font-size: 11px; padding: 0 10px;
+            }}
+            QPushButton:hover {{ border-color: {_ACCENT}; }}
+        """)
+        sel_all.clicked.connect(lambda: self._toggle_all_forgotten(True))
+        btn_row.addWidget(sel_all)
+
+        desel = QPushButton("Deselect All")
+        desel.setFixedHeight(28)
+        desel.setStyleSheet(f"""
+            QPushButton {{
+                background: {_SURFACE}; color: {_TEXT};
+                border: 1px solid {_BORDER}; border-radius: 6px;
+                font-size: 11px; padding: 0 10px;
+            }}
+            QPushButton:hover {{ border-color: {_ACCENT}; }}
+        """)
+        desel.clicked.connect(lambda: self._toggle_all_forgotten(False))
+        btn_row.addWidget(desel)
+
+        refresh = QPushButton("\u21bb")
+        refresh.setFixedSize(28, 28)
+        refresh.setToolTip("Refresh forgotten list")
+        refresh.setStyleSheet(_refresh_btn_style())
+        refresh.clicked.connect(self._load_forgotten)
+        btn_row.addWidget(refresh)
+        flay.addLayout(btn_row)
+
+        # Action buttons row
+        action_row = QHBoxLayout()
+
+        restore_btn = QPushButton("Restore Selected")
+        restore_btn.setFixedHeight(34)
+        restore_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: {_GREEN}; color: #1E1E2E;
+                border-radius: 8px; font-size: 12px; font-weight: bold;
+            }}
+            QPushButton:hover {{ background: #80D090; }}
+        """)
+        restore_btn.clicked.connect(self._restore_selected_forgotten)
+        action_row.addWidget(restore_btn)
+
+        purge_btn = QPushButton("Delete Forever")
+        purge_btn.setFixedHeight(34)
+        purge_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: {_RED}; color: #1E1E2E;
+                border-radius: 8px; font-size: 12px; font-weight: bold;
+            }}
+            QPushButton:hover {{ background: #E05580; }}
+        """)
+        purge_btn.clicked.connect(self._purge_selected_forgotten)
+        action_row.addWidget(purge_btn)
+        flay.addLayout(action_row)
+
+        self._forget_status = QLabel("")
+        self._forget_status.setStyleSheet(f"color: {_GREEN}; font-size: 11px;")
+        self._forget_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        flay.addWidget(self._forget_status)
+
+        return tab
+
+    def _save_retention(self) -> None:
+        text = self._retention_days_input.text().strip()
+        try:
+            days = int(text) if text else 30
+            if days < 1:
+                days = 1
+        except ValueError:
+            days = 30
+        conf = cfg.load()
+        conf["forget_retention_days"] = days
+        cfg.save(conf)
+        self._retention_status.setStyleSheet(f"color: {_GREEN}; font-size: 11px;")
+        self._retention_status.setText(f"Saved: {days} days")
+        from PySide6.QtCore import QTimer
+        QTimer.singleShot(2000, lambda: self._retention_status.setText(""))
+
+    def _load_forgotten(self) -> None:
+        self._forgotten_list.clear()
+        try:
+            from core.forget import get_forgotten
+            from core.milvus_memory import get_all
+            import time
+
+            forgotten = get_forgotten()
+            forgotten_mems = forgotten.get("memories", {})
+
+            if not forgotten_mems:
+                self._forget_status.setStyleSheet(f"color: {_MUTED}; font-size: 11px;")
+                self._forget_status.setText("No forgotten memories.")
+                return
+
+            all_memories = get_all()
+            mem_map = {m["id"]: m for m in all_memories}
+
+            now = int(time.time())
+            for mid, forgotten_at in forgotten_mems.items():
+                mem = mem_map.get(mid)
+                if mem is None:
+                    continue
+                text = mem.get("content", "")
+                display = text[:100] + "..." if len(text) > 100 else text
+                days_ago = (now - forgotten_at) // 86400
+                display = f"[{days_ago}d ago] {display}"
+                item = QListWidgetItem(display)
+                item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+                item.setCheckState(Qt.CheckState.Unchecked)
+                item.setData(Qt.ItemDataRole.UserRole, mid)
+                self._forgotten_list.addItem(item)
+
+            self._forget_status.setStyleSheet(f"color: {_MUTED}; font-size: 11px;")
+            self._forget_status.setText(f"{self._forgotten_list.count()} forgotten memories")
+        except Exception as e:
+            self._forget_status.setStyleSheet(f"color: {_RED}; font-size: 11px;")
+            self._forget_status.setText(f"Error: {e}")
+
+    def _toggle_all_forgotten(self, checked: bool) -> None:
+        state = Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked
+        for i in range(self._forgotten_list.count()):
+            self._forgotten_list.item(i).setCheckState(state)
+
+    def _get_selected_forgotten_ids(self) -> list[str]:
+        ids = []
+        for i in range(self._forgotten_list.count()):
+            item = self._forgotten_list.item(i)
+            if item.checkState() == Qt.CheckState.Checked:
+                mid = item.data(Qt.ItemDataRole.UserRole)
+                if mid:
+                    ids.append(mid)
+        return ids
+
+    def _restore_selected_forgotten(self) -> None:
+        ids = self._get_selected_forgotten_ids()
+        if not ids:
+            self._forget_status.setStyleSheet(f"color: {_MUTED}; font-size: 11px;")
+            self._forget_status.setText("No items selected.")
+            return
+        try:
+            from core.forget import unmark_forgotten_memories
+            count = unmark_forgotten_memories(ids)
+            self._forget_status.setStyleSheet(f"color: {_GREEN}; font-size: 11px;")
+            self._forget_status.setText(f"Restored {count} memories.")
+            self._load_forgotten()
+            from PySide6.QtCore import QTimer
+            QTimer.singleShot(3000, lambda: self._forget_status.setText(""))
+        except Exception as e:
+            self._forget_status.setStyleSheet(f"color: {_RED}; font-size: 11px;")
+            self._forget_status.setText(f"Error: {e}")
+
+    def _purge_selected_forgotten(self) -> None:
+        ids = self._get_selected_forgotten_ids()
+        if not ids:
+            self._forget_status.setStyleSheet(f"color: {_MUTED}; font-size: 11px;")
+            self._forget_status.setText("No items selected.")
+            return
+        try:
+            from core.forget import permanently_delete_memories
+            count = permanently_delete_memories(ids)
+            from core.agent import reset_agent
+            reset_agent()
+            self._forget_status.setStyleSheet(f"color: {_GREEN}; font-size: 11px;")
+            self._forget_status.setText(f"Permanently deleted {count} memories.")
+            self._load_forgotten()
+            self._load_memories()
+            from PySide6.QtCore import QTimer
+            QTimer.singleShot(3000, lambda: self._forget_status.setText(""))
+        except Exception as e:
+            self._forget_status.setStyleSheet(f"color: {_RED}; font-size: 11px;")
+            self._forget_status.setText(f"Error: {e}")
 
     # ── provider combo rebuild ─────────────────────────────────────────────────
     def _rebuild_provider_combo(self, current_key: str) -> None:
@@ -660,6 +1086,10 @@ class SageSettings(QWidget):
         from PySide6.QtCore import QTimer
         QTimer.singleShot(2000, lambda: self._hotkey_status.setText(""))
 
+    def _save_language(self) -> None:
+        lang = self._language_combo.currentText()
+        self._save_and_reset({"language": lang}, self._lang_status)
+
     # ── Documents handlers ────────────────────────────────────────────────────
     def _browse_docs_folder(self) -> None:
         folder = QFileDialog.getExistingDirectory(self, "Select documents folder")
@@ -694,6 +1124,11 @@ class SageSettings(QWidget):
 
         # Hotkey
         self._hotkey_input.setText(conf.get("hotkey", "F10"))
+
+        # Language
+        lang = conf.get("language", "pt-BR")
+        li = self._language_combo.findText(lang)
+        self._language_combo.setCurrentIndex(li if li >= 0 else 0)
 
         # Provider
         self._rebuild_provider_combo(conf.get("provider", "openai"))
@@ -746,6 +1181,14 @@ class SageSettings(QWidget):
         else:
             self._startup_cb.setChecked(_autostart_enabled())
             self._load_fields()
+            self._refresh_pro_tabs()
+            conf = cfg.load()
+            if conf.get("user_plan", "free") == "pro":
+                self._retention_days_input.setText(
+                    str(conf.get("forget_retention_days", 30))
+                )
+                self._load_memories()
+                self._load_forgotten()
             self._position()
             self.show()
             self.raise_()

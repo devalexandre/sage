@@ -32,6 +32,12 @@ _DEFAULTS: dict = {
     "vllm_api_key": "",
     # Hotkey
     "hotkey": "F10",
+    # Language
+    "language": "pt-BR",
+    # Milvus (memory vector store)
+    "milvus_uri": "~/.sage/milvus.db",
+    "milvus_token": "",
+    "milvus_collection": "sage_memories",
     # RAG / Documents
     "qdrant_url": "",
     "qdrant_api_key": "",
@@ -40,6 +46,8 @@ _DEFAULTS: dict = {
     "embed_model": "text-embedding-3-small",
     "embed_dimensions": 1536,
     "documents_path": "",
+    # Forget (memory retention)
+    "forget_retention_days": 30,
 }
 
 
