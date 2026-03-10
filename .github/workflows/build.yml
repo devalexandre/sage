@@ -11,6 +11,9 @@ permissions:
 env:
   APP_NAME: sage
   PYTHON_VERSION: "3.12"
+  WINDOWS_STORE_IDENTITY_NAME: Sage.PersonalKnowledge
+  WINDOWS_STORE_PUBLISHER: CN=Alexandre E Souza
+  WINDOWS_STORE_PUBLISHER_DISPLAY_NAME: dev2learn
 
 jobs:
   # ── Linux AppImage ─────────────────────────────────────────────────────────
@@ -199,13 +202,13 @@ jobs:
           <Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
                    xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
                    xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities">
-            <Identity Name="Sage.PersonalKnowledge"
-                      Publisher="CN=Alexandre E Souza"
+            <Identity Name="${{ env.WINDOWS_STORE_IDENTITY_NAME }}"
+                      Publisher="${{ env.WINDOWS_STORE_PUBLISHER }}"
                       Version="${{ env.VERSION }}.0"
                       ProcessorArchitecture="x64" />
             <Properties>
               <DisplayName>Sage</DisplayName>
-              <PublisherDisplayName>Alexandre E Souza</PublisherDisplayName>
+              <PublisherDisplayName>${{ env.WINDOWS_STORE_PUBLISHER_DISPLAY_NAME }}</PublisherDisplayName>
               <Logo>sage.png</Logo>
             </Properties>
             <Dependencies>
@@ -330,17 +333,3 @@ jobs:
             artifacts/windows-build/Sage-${{ env.VERSION }}.msix
             artifacts/macos-build/Sage-${{ env.VERSION }}-macOS.dmg
           generate_release_notes: true
-
-      - name: Publish to sage-releases (public repo)
-        env:
-          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
-        run: |
-          gh release create "v${{ env.VERSION }}" \
-            --repo devalexandre/sage-releases \
-            --title "Sage v${{ env.VERSION }}" \
-            --notes "Sage v${{ env.VERSION }} release" \
-            artifacts/linux-build/Sage-${{ env.VERSION }}-x86_64.AppImage \
-            artifacts/linux-build/${{ env.APP_NAME }}_${{ env.VERSION }}_amd64.deb \
-            artifacts/arch-build/${{ env.APP_NAME }}-${{ env.VERSION }}-*-x86_64.pkg.tar.zst \
-            artifacts/windows-build/Sage-${{ env.VERSION }}.msix \
-            artifacts/macos-build/Sage-${{ env.VERSION }}-macOS.dmg
