@@ -134,7 +134,7 @@ jobs:
           name: arch-build
           path: dist/${{ env.APP_NAME }}-${{ env.VERSION }}-*-x86_64.pkg.tar.zst
 
-  # ── Windows exe ────────────────────────────────────────────────────────────
+  # ── Windows exe + installer ────────────────────────────────────────────────
   build-windows:
     needs: build-linux
     runs-on: windows-latest
@@ -179,16 +179,28 @@ jobs:
             --output-filename=${{ env.APP_NAME }}.exe `
             --windows-icon-from-ico=assets\sage.ico `
             --windows-console-mode=disable `
+            --company-name="Sage" `
+            --product-name="Sage" `
+            --file-version=${{ env.VERSION }}.0 `
+            --product-version=${{ env.VERSION }}.0 `
+            --file-description="Sage - Personal Knowledge Widget" `
             app.py
 
-      - name: Rename with version
+      # ── WiX MSI installer ──
+      - name: Install WiX Toolset
+        run: dotnet tool install --global wix
+
+      - name: Build MSI with WiX
         run: |
-          mv "dist/${{ env.APP_NAME }}.exe" "dist/Sage-${{ env.VERSION }}-windows.exe"
+          wix build packaging\windows\sage.wxs `
+            -d Version=${{ env.VERSION }} `
+            -d ExePath=${{ github.workspace }}\dist\${{ env.APP_NAME }}.exe `
+            -o dist\Sage-${{ env.VERSION }}.msi
 
       - uses: actions/upload-artifact@v4
         with:
           name: windows-build
-          path: dist/Sage-${{ env.VERSION }}-windows.exe
+          path: dist/Sage-${{ env.VERSION }}.msi
 
   # ── macOS .app ────────────────────────────────────────────────────────────
   build-macos:
@@ -274,6 +286,6 @@ jobs:
             artifacts/linux-build/Sage-${{ env.VERSION }}-x86_64.AppImage
             artifacts/linux-build/${{ env.APP_NAME }}_${{ env.VERSION }}_amd64.deb
             artifacts/arch-build/${{ env.APP_NAME }}-${{ env.VERSION }}-*-x86_64.pkg.tar.zst
-            artifacts/windows-build/Sage-${{ env.VERSION }}-windows.exe
+            artifacts/windows-build/Sage-${{ env.VERSION }}.msi
             artifacts/macos-build/Sage-${{ env.VERSION }}-macOS.dmg
           generate_release_notes: true
