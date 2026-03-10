@@ -179,28 +179,62 @@ jobs:
             --output-filename=${{ env.APP_NAME }}.exe `
             --windows-icon-from-ico=assets\sage.ico `
             --windows-console-mode=disable `
-            --company-name="Sage" `
+            --company-name="Alexandre E Souza" `
             --product-name="Sage" `
             --file-version=${{ env.VERSION }}.0 `
             --product-version=${{ env.VERSION }}.0 `
             --file-description="Sage - Personal Knowledge Widget" `
             app.py
 
-      # ── WiX MSI installer ──
-      - name: Install WiX Toolset
-        run: dotnet tool install --global wix
-
-      - name: Build MSI with WiX
+      # ── MSIX package (unsigned — Microsoft Store signs it) ──
+      - name: Build MSIX package
         run: |
-          wix build packaging\windows\sage.wxs `
-            -d Version=${{ env.VERSION }} `
-            -d ExePath=${{ github.workspace }}\dist\${{ env.APP_NAME }}.exe `
-            -o dist\Sage-${{ env.VERSION }}.msi
+          $msixDir = "dist\msix"
+          New-Item -ItemType Directory -Force -Path $msixDir
+          Copy-Item "dist\${{ env.APP_NAME }}.exe" "$msixDir\${{ env.APP_NAME }}.exe"
+          Copy-Item "assets\sage.png" "$msixDir\sage.png"
+
+          @"
+          <?xml version="1.0" encoding="utf-8"?>
+          <Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+                   xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+                   xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities">
+            <Identity Name="Sage.PersonalKnowledge"
+                      Publisher="CN=Alexandre E Souza"
+                      Version="${{ env.VERSION }}.0"
+                      ProcessorArchitecture="x64" />
+            <Properties>
+              <DisplayName>Sage</DisplayName>
+              <PublisherDisplayName>Alexandre E Souza</PublisherDisplayName>
+              <Logo>sage.png</Logo>
+            </Properties>
+            <Dependencies>
+              <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.22621.0" />
+            </Dependencies>
+            <Resources>
+              <Resource Language="en-us" />
+            </Resources>
+            <Applications>
+              <Application Id="Sage" Executable="sage.exe" EntryPoint="Windows.FullTrustApplication">
+                <uap:VisualElements DisplayName="Sage"
+                                    Description="Personal Knowledge Widget"
+                                    Square150x150Logo="sage.png"
+                                    Square44x44Logo="sage.png"
+                                    BackgroundColor="transparent" />
+              </Application>
+            </Applications>
+            <Capabilities>
+              <rescap:Capability Name="runFullTrust" />
+            </Capabilities>
+          </Package>
+          "@ | Out-File -Encoding utf8 "$msixDir\AppxManifest.xml"
+
+          & "C:\Program Files (x86)\Windows Kits\10\bin\10.0.22621.0\x64\makeappx.exe" pack /d $msixDir /p "dist\Sage-${{ env.VERSION }}.msix" /o
 
       - uses: actions/upload-artifact@v4
         with:
           name: windows-build
-          path: dist/Sage-${{ env.VERSION }}.msi
+          path: dist/Sage-${{ env.VERSION }}.msix
 
   # ── macOS .app ────────────────────────────────────────────────────────────
   build-macos:
@@ -279,13 +313,27 @@ jobs:
         with:
           path: artifacts
 
-      - name: Create Release
+      - name: Create Release (private repo)
         uses: softprops/action-gh-release@v2
         with:
           files: |
             artifacts/linux-build/Sage-${{ env.VERSION }}-x86_64.AppImage
             artifacts/linux-build/${{ env.APP_NAME }}_${{ env.VERSION }}_amd64.deb
             artifacts/arch-build/${{ env.APP_NAME }}-${{ env.VERSION }}-*-x86_64.pkg.tar.zst
-            artifacts/windows-build/Sage-${{ env.VERSION }}.msi
+            artifacts/windows-build/Sage-${{ env.VERSION }}.msix
             artifacts/macos-build/Sage-${{ env.VERSION }}-macOS.dmg
           generate_release_notes: true
+
+      - name: Publish to sage-releases (public repo)
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: |
+          gh release create "v${{ env.VERSION }}" \
+            --repo devalexandre/sage-releases \
+            --title "Sage v${{ env.VERSION }}" \
+            --notes "Sage v${{ env.VERSION }} release" \
+            artifacts/linux-build/Sage-${{ env.VERSION }}-x86_64.AppImage \
+            artifacts/linux-build/${{ env.APP_NAME }}_${{ env.VERSION }}_amd64.deb \
+            artifacts/arch-build/${{ env.APP_NAME }}-${{ env.VERSION }}-*-x86_64.pkg.tar.zst \
+            artifacts/windows-build/Sage-${{ env.VERSION }}.msix \
+            artifacts/macos-build/Sage-${{ env.VERSION }}-macOS.dmg
