@@ -4,6 +4,7 @@ import platform
 import subprocess
 import sys
 import urllib.request
+from datetime import datetime
 from pathlib import Path
 
 from PySide6.QtCore import QObject, QThread, Qt, Signal
@@ -15,10 +16,12 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QFrame,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QLineEdit,
     QListWidget,
     QListWidgetItem,
+    QMessageBox,
     QPushButton,
     QTabWidget,
     QVBoxLayout,
@@ -217,7 +220,7 @@ class SageSettings(QWidget):
             | Qt.WindowType.Tool
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self.setFixedWidth(360)
+        self.setFixedWidth(460)
         self._thread: QThread | None = None
         self._visible_providers: list[tuple[str, str]] = []
         self._build_ui()
@@ -332,6 +335,42 @@ class SageSettings(QWidget):
         self._lang_status = QLabel("")
         self._lang_status.setStyleSheet(f"color: {_GREEN}; font-size: 11px;")
         lay.addWidget(self._lang_status)
+
+        lay.addWidget(_separator())
+
+        lay.addWidget(_field_label("Backup"))
+        backup_row = QHBoxLayout()
+        self._backup_export_btn = QPushButton("Export")
+        self._backup_export_btn.setFixedHeight(34)
+        self._backup_export_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: {_ACCENT}; color: white;
+                border-radius: 8px; font-size: 12px; font-weight: bold;
+                padding: 0 12px;
+            }}
+            QPushButton:hover {{ background: #6D28D9; }}
+        """)
+        self._backup_export_btn.clicked.connect(self._export_backup)
+        backup_row.addWidget(self._backup_export_btn)
+
+        self._backup_import_btn = QPushButton("Import")
+        self._backup_import_btn.setFixedHeight(34)
+        self._backup_import_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: {_SURFACE}; color: {_TEXT};
+                border: 1px solid {_BORDER}; border-radius: 8px;
+                font-size: 12px; font-weight: bold; padding: 0 12px;
+            }}
+            QPushButton:hover {{ border-color: {_ACCENT}; }}
+        """)
+        self._backup_import_btn.clicked.connect(self._import_backup)
+        backup_row.addWidget(self._backup_import_btn)
+        lay.addLayout(backup_row)
+
+        self._backup_status = QLabel("Encrypted backup file for your local Sage data.")
+        self._backup_status.setWordWrap(True)
+        self._backup_status.setStyleSheet(f"color: {_MUTED}; font-size: 11px;")
+        lay.addWidget(self._backup_status)
 
         lay.addStretch()
         return tab
@@ -1096,6 +1135,99 @@ class SageSettings(QWidget):
     def _save_language(self) -> None:
         lang = self._language_combo.currentText()
         self._save_and_reset({"language": lang}, self._lang_status)
+
+    def _export_backup(self) -> None:
+        password = self._prompt_backup_password("Create Backup Password")
+        if not password:
+            return
+
+        default_name = str(Path.home() / f"sage-backup{datetime.now().strftime('-%Y%m%d-%H%M%S')}.sagebackup")
+        target, _ = QFileDialog.getSaveFileName(
+            self,
+            "Export Sage backup",
+            default_name,
+            "Sage Backup (*.sagebackup)",
+        )
+        if not target:
+            return
+
+        try:
+            from core.backup import BackupError, export_backup
+
+            exported = export_backup(target, password)
+            self._backup_status.setStyleSheet(f"color: {_GREEN}; font-size: 11px;")
+            self._backup_status.setText(f"Backup exported: {exported}")
+        except BackupError as exc:
+            self._backup_status.setStyleSheet(f"color: {_RED}; font-size: 11px;")
+            self._backup_status.setText(str(exc))
+        except Exception as exc:
+            self._backup_status.setStyleSheet(f"color: {_RED}; font-size: 11px;")
+            self._backup_status.setText(f"Backup export failed: {exc}")
+
+    def _import_backup(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Import Sage backup",
+            str(Path.home()),
+            "Sage Backup (*.sagebackup)",
+        )
+        if not path:
+            return
+
+        result = QMessageBox.question(
+            self,
+            "Import backup",
+            "Importing a backup will replace your current local Sage data. Continue?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if result != QMessageBox.StandardButton.Yes:
+            return
+
+        password = self._prompt_backup_password("Enter Backup Password")
+        if not password:
+            return
+
+        try:
+            from core.agent import reset_agent
+            from core.backup import BackupError, import_backup
+            from core.milvus_memory import reset as reset_milvus
+            from core.rag import reset_knowledge
+
+            import_backup(path, password)
+            reset_agent()
+            reset_milvus()
+            reset_knowledge()
+            self._backup_status.setStyleSheet(f"color: {_GREEN}; font-size: 11px;")
+            self._backup_status.setText("Backup imported. Restart Sage before using memories/documents.")
+            self._load_fields()
+            QMessageBox.information(
+                self,
+                "Backup imported",
+                "Backup imported successfully.\n\nRestart Sage before using restored memories and documents.",
+            )
+        except BackupError as exc:
+            self._backup_status.setStyleSheet(f"color: {_RED}; font-size: 11px;")
+            self._backup_status.setText(str(exc))
+        except Exception as exc:
+            self._backup_status.setStyleSheet(f"color: {_RED}; font-size: 11px;")
+            self._backup_status.setText(f"Backup import failed: {exc}")
+
+    def _prompt_backup_password(self, title: str) -> str:
+        password, ok = QInputDialog.getText(
+            self,
+            title,
+            "Password",
+            QLineEdit.EchoMode.Password,
+        )
+        if not ok:
+            return ""
+        password = password.strip()
+        if not password:
+            self._backup_status.setStyleSheet(f"color: {_RED}; font-size: 11px;")
+            self._backup_status.setText("Backup password cannot be empty.")
+            return ""
+        return password
 
     # ── Documents handlers ────────────────────────────────────────────────────
     def _browse_docs_folder(self) -> None:

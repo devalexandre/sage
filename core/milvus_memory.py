@@ -77,9 +77,27 @@ def get_milvus():
 
 
 def reset():
-    """Discard the cached Milvus instance so it is rebuilt with fresh config."""
+    """Release and discard the cached Milvus instance."""
     global _milvus_db
+    if _milvus_db is not None:
+        try:
+            _milvus_db.client.release_collection(_milvus_db.collection)
+        except Exception:
+            pass
+        try:
+            _milvus_db.client.close()
+        except Exception:
+            pass
     _milvus_db = None
+
+
+def flush() -> None:
+    """Force pending local Milvus changes to disk before backup/export."""
+    db = get_milvus()
+    try:
+        db.client.flush(collection_name=db.collection)
+    except Exception as e:
+        logger.warning("Failed to flush Milvus collection %s: %s", db.collection, e)
 
 
 def store(text: str) -> str:

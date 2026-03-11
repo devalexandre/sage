@@ -1,4 +1,5 @@
 VENV    := .venv
+PYTHON_BIN ?= python3.12
 PYTHON  := $(VENV)/bin/python
 PIP     := $(VENV)/bin/pip
 APPNAME := sage
@@ -12,10 +13,20 @@ help:           ## Show this help
 		| awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
 
 setup:          ## Create venv and install all dependencies
-	python3 -m venv $(VENV)
+	@PYTHON_BIN=$$(command -v $(PYTHON_BIN)); \
+		if [ -z "$$PYTHON_BIN" ]; then \
+			echo "✗ $(PYTHON_BIN) not found. Install Python 3.12 or run 'make setup PYTHON_BIN=/path/to/python3.12'."; \
+			exit 1; \
+		fi; \
+		$$PYTHON_BIN -m venv $(VENV)
 	$(PIP) install --upgrade pip
 	$(PIP) install -e ".[dev]" 2>/dev/null || $(PIP) install -e .
 	@echo "✓ Setup complete. Run: make run"
+
+check-python:   ## Ensure local build uses a supported Python for Nuitka
+	@$(PYTHON) -c 'import sys; v=sys.version_info; \
+		assert v[:2] in ((3, 12), (3, 13)), \
+		f"Python {v.major}.{v.minor} detected in .venv; use Python 3.12 or 3.13 for Nuitka builds."'
 
 # ── wheel (source distribution) ──────────────────────────────────────────────
 build:          ## Build the wheel — dist/sage-*.whl  (code is readable)
@@ -33,6 +44,7 @@ icon:           ## Generate assets/sage.png and assets/sage.ico
 
 # ── Linux binary + AppImage ───────────────────────────────────────────────────
 build-linux:    ## Build Linux AppImage via Nuitka + appimagetool
+	@$(MAKE) check-python
 	@command -v patchelf >/dev/null 2>&1 || { \
 		echo "✗ patchelf not found. Install with:"; \
 		echo "  Arch:   sudo pacman -S patchelf"; \
@@ -75,6 +87,7 @@ build-linux:    ## Build Linux AppImage via Nuitka + appimagetool
 
 # ── Windows binary + installer ────────────────────────────────────────────────
 build-windows:  ## Build Windows installer via Nuitka + Inno Setup  (run on Windows)
+	@$(MAKE) check-python
 	$(MAKE) icon
 	$(PIP) install --quiet nuitka ordered-set zstandard
 	$(PYTHON) -m nuitka \
