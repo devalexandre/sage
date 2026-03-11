@@ -11,9 +11,10 @@ permissions:
 env:
   APP_NAME: sage
   PYTHON_VERSION: "3.12"
-  WINDOWS_STORE_IDENTITY_NAME: Sage.PersonalKnowledge
-  WINDOWS_STORE_PUBLISHER: CN=Alexandre E Souza
+  WINDOWS_STORE_IDENTITY_NAME: dev2learn.SageLearn
+  WINDOWS_STORE_PUBLISHER: CN=3011FB39-8A46-4C3F-8825-1E61E7D7166A
   WINDOWS_STORE_PUBLISHER_DISPLAY_NAME: dev2learn
+  WINDOWS_STORE_DISPLAY_NAME: SageLearn
 
 jobs:
   metadata:
@@ -238,7 +239,7 @@ jobs:
                       Version="${{ env.VERSION }}.0"
                       ProcessorArchitecture="x64" />
             <Properties>
-              <DisplayName>Sage</DisplayName>
+              <DisplayName>${{ env.WINDOWS_STORE_DISPLAY_NAME }}</DisplayName>
               <PublisherDisplayName>${{ env.WINDOWS_STORE_PUBLISHER_DISPLAY_NAME }}</PublisherDisplayName>
               <Logo>sage.png</Logo>
             </Properties>
@@ -250,7 +251,7 @@ jobs:
             </Resources>
             <Applications>
               <Application Id="Sage" Executable="sage.exe" EntryPoint="Windows.FullTrustApplication">
-                <uap:VisualElements DisplayName="Sage"
+                <uap:VisualElements DisplayName="${{ env.WINDOWS_STORE_DISPLAY_NAME }}"
                                     Description="Personal Knowledge Widget"
                                     Square150x150Logo="sage.png"
                                     Square44x44Logo="sage.png"
