@@ -162,7 +162,7 @@ class SageAccount(QWidget):
     def _load(self) -> None:
         conf = cfg.load()
         email = conf.get("user_email", "—")
-        plan  = conf.get("user_plan", "pro")
+        plan  = conf.get("user_plan", "free")
         n_mem = count_memories()
 
         self._email_lbl.setText(email)

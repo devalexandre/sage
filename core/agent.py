@@ -1,5 +1,8 @@
 import logging
 import os
+import re
+import unicodedata
+from typing import Any
 from pathlib import Path
 from uuid import uuid4
 
@@ -20,6 +23,47 @@ _NOT_FOUND = {
 }
 
 _agent: Agent | None = None
+_DIRECT_REVEAL_HINTS = (
+    "dado", "dados", "credencial", "credenciais", "acesso", "senha", "password",
+    "token", "api key", "api_key", "email", "e-mail", "telefone", "phone",
+    "cpf", "cnpj", "login",
+)
+_TITLE_TOKEN_RE = re.compile(r"[a-z0-9]+")
+_TITLE_STOPWORDS = {
+    "a", "as", "o", "os", "um", "uma", "uns", "umas",
+    "de", "do", "da", "dos", "das", "no", "na", "nos", "nas",
+    "em", "para", "por", "com", "sem", "e", "ou",
+    "meu", "minha", "meus", "minhas", "seu", "sua", "seus", "suas",
+    "qual", "quais", "que",
+}
+
+
+def _response_to_text(response: Any) -> str:
+    """Extract plain text from Agno responses across library versions."""
+    if response is None:
+        return ""
+
+    getter = getattr(response, "get_content_as_string", None)
+    if callable(getter):
+        try:
+            text = getter()
+        except Exception:
+            logger.debug("Agno response getter failed", exc_info=True)
+        else:
+            if isinstance(text, str):
+                return text
+            if text is not None:
+                return str(text)
+
+    content = getattr(response, "content", None)
+    if isinstance(content, str):
+        return content
+    if content is not None:
+        return str(content)
+
+    if isinstance(response, str):
+        return response
+    return str(response)
 
 
 def reset_agent() -> None:
@@ -117,15 +161,65 @@ def _get_agent() -> Agent:
 def store_fact(text: str) -> str:
     """Store a fact in Milvus vector memory. No LLM call needed."""
     from core.milvus_memory import store
-    from core.vault import seal
+    from core.vault import sanitize_for_retrieval
 
-    sealed = seal(text)
-    store(sealed)
+    retrieval_text = sanitize_for_retrieval(text)
+    store(retrieval_text, original_text=text)
     return "Saved."
 
 
+def _memory_title(memory: dict[str, Any]) -> str:
+    from core.vault import retrieval_text
+
+    content = retrieval_text(memory)
+    for line in content.splitlines():
+        line = line.strip()
+        if line:
+            return line
+    return ""
+
+
+def _normalize_tokens(text: str) -> set[str]:
+    normalized = unicodedata.normalize("NFKD", text)
+    normalized = "".join(ch for ch in normalized if not unicodedata.combining(ch))
+    return {
+        token for token in _TITLE_TOKEN_RE.findall(normalized.lower())
+        if len(token) >= 3 and token not in _TITLE_STOPWORDS
+    }
+
+
+def _should_return_direct_memory(question: str, memories: list[dict[str, Any]]) -> bool:
+    if not memories:
+        return False
+
+    lowered = question.lower()
+    if not any(hint in lowered for hint in _DIRECT_REVEAL_HINTS):
+        return False
+
+    top = memories[0]
+    title = _memory_title(top).lower()
+    score = float(top.get("score", 0.0) or 0.0)
+    if not title:
+        return False
+
+    title_tokens = _normalize_tokens(title)
+    question_tokens = _normalize_tokens(question)
+    token_match = bool(title_tokens) and title_tokens.issubset(question_tokens)
+    return token_match or score >= 0.85 or title in lowered
+
+
+def _direct_memory_answer(memories: list[dict[str, Any]]) -> str:
+    from core.vault import extract_full_text
+
+    top = memories[0]
+    full_text = extract_full_text(top).strip()
+    if full_text:
+        return full_text
+    return ""
+
+
 def query_knowledge(question: str) -> str:
-    from core.vault import unseal
+    from core.vault import retrieval_text
     from core.milvus_memory import search as milvus_search
 
     conf = cfg.load()
@@ -136,12 +230,17 @@ def query_knowledge(question: str) -> str:
     memories = milvus_search(question, limit=10)
     logger.info("Milvus returned %d memories", len(memories))
 
+    direct_answer = _direct_memory_answer(memories) if _should_return_direct_memory(question, memories) else ""
+    if direct_answer:
+        logger.info("Returning direct local memory answer for question=%r", question)
+        return direct_answer
+
     # 2) Build memory context block (Qdrant is searched by agent via knowledge tool)
     context_lines = []
 
     if memories:
         for m in memories:
-            content = unseal(m["content"])
+            content = retrieval_text(m)
             context_lines.append(f"- {content}")
 
     if context_lines:
@@ -163,8 +262,8 @@ def query_knowledge(question: str) -> str:
         session_id=str(uuid4()),
         stream=False,
     )
-    raw = response.get_content_as_string()
-    logger.debug("get_content_as_string() returned: %r", raw)
+    raw = _response_to_text(response)
+    logger.debug("Agent response text: %r", raw)
     if not raw:
         raw = not_found_msg
-    return unseal(raw)
+    return raw

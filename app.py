@@ -1,12 +1,13 @@
 import logging
 import logging.handlers
+import os
 import sys
 import traceback
 from pathlib import Path
 
 from dotenv import load_dotenv
 from PySide6.QtCore import QEventLoop, QObject, QThread, Signal
-from PySide6.QtWidgets import QApplication, QMessageBox, QSystemTrayIcon
+from PySide6.QtWidgets import QApplication, QMessageBox, QStyleFactory, QSystemTrayIcon
 
 # Load .env from project root (fallback to home)
 load_dotenv(Path(__file__).parent / ".env")
@@ -42,8 +43,22 @@ def _exception_hook(exc_type, exc_value, exc_tb):
 sys.excepthook = _exception_hook
 
 
+def _sanitize_qt_style_override() -> None:
+    style_override = os.environ.get("QT_STYLE_OVERRIDE", "").strip()
+    if not style_override:
+        return
+
+    available_styles = {style.lower() for style in QStyleFactory.keys()}
+    if style_override.lower() in available_styles:
+        return
+
+    logger.info("Removing unsupported QT_STYLE_OVERRIDE=%s", style_override)
+    os.environ.pop("QT_STYLE_OVERRIDE", None)
+
+
 def main() -> None:
     logger.info("Sage starting...")
+    _sanitize_qt_style_override()
     app = QApplication(sys.argv)
     app.setApplicationName("Sage")
     app.setQuitOnLastWindowClosed(False)
@@ -191,10 +206,15 @@ def main() -> None:
     # ── Step 7: migrate SQLite → Milvus (one-time, background) ──────────────
     def _run_migration() -> None:
         try:
-            from core.migrate import migrate_sqlite_to_milvus
-            count = migrate_sqlite_to_milvus()
-            if count:
-                logger.info("Migration: %d memories moved to Milvus", count)
+            from core.migrate import run_startup_migrations
+
+            result = run_startup_migrations()
+            if (
+                result["sqlite_to_milvus"]
+                or result["legacy_milvus_reindexed"]
+                or result["legacy_vault_rows_cleaned"]
+            ):
+                logger.info("Startup migrations completed: %s", result)
         except Exception:
             logger.debug("Migration failed: %s", traceback.format_exc())
 

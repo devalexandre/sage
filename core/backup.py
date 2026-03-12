@@ -6,7 +6,7 @@ import shutil
 import tempfile
 import zipfile
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from cryptography.fernet import Fernet, InvalidToken
 from cryptography.hazmat.primitives import hashes
@@ -17,6 +17,16 @@ DATA_DIR = Path.home() / ".sage"
 BACKUP_SUFFIX = ".sagebackup"
 _MAGIC = "SAGE_BACKUP_V1"
 _ITERATIONS = 390_000
+_KNOWN_TOP_LEVEL_NAMES = {
+    "config.json",
+    "device_id",
+    "enc.key",
+    "forgotten.json",
+    "history.db",
+    "milvus.db",
+    "qdrant_storage",
+    "sage.log",
+}
 
 
 class BackupError(Exception):
@@ -31,8 +41,10 @@ def export_backup(destination: str | Path, password: str) -> Path:
 
     try:
         from core.milvus_memory import flush as flush_milvus
+        from core.milvus_memory import reset as reset_milvus
 
         flush_milvus()
+        reset_milvus()
     except Exception:
         pass
 
@@ -87,7 +99,7 @@ def import_backup(source: str | Path, password: str) -> None:
         restore_dir.mkdir(parents=True, exist_ok=True)
         try:
             with zipfile.ZipFile(io.BytesIO(payload), "r") as archive:
-                archive.extractall(restore_dir)
+                _extract_archive(archive, restore_dir)
         except Exception as exc:
             raise BackupError("Backup contents could not be restored.") from exc
 
@@ -111,9 +123,62 @@ def _zip_data_dir() -> bytes:
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         for path in sorted(DATA_DIR.rglob("*")):
-            if path.is_file():
-                archive.write(path, path.relative_to(DATA_DIR))
+            if not path.is_file():
+                continue
+            relative = path.relative_to(DATA_DIR)
+            if _should_skip_backup_path(relative):
+                continue
+            archive.write(path, relative)
     return buffer.getvalue()
+
+
+def _extract_archive(archive: zipfile.ZipFile, restore_dir: Path) -> None:
+    for info in archive.infolist():
+        relative = _normalize_backup_member(info.filename)
+        if relative is None:
+            continue
+
+        destination = restore_dir / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+
+        if info.is_dir():
+            destination.mkdir(parents=True, exist_ok=True)
+            continue
+
+        with archive.open(info, "r") as src, destination.open("wb") as dst:
+            shutil.copyfileobj(src, dst)
+
+
+def _normalize_backup_member(name: str) -> Path | None:
+    raw = name.replace("\\", "/").strip()
+    if not raw:
+        return None
+
+    posix = PurePosixPath(raw)
+    parts = [part for part in posix.parts if part not in ("", ".", "/")]
+    if not parts:
+        return None
+
+    if ".sage" in parts:
+        parts = parts[parts.index(".sage") + 1:]
+    elif parts[0] not in _KNOWN_TOP_LEVEL_NAMES:
+        anchor_index = next((i for i, part in enumerate(parts) if part in _KNOWN_TOP_LEVEL_NAMES), None)
+        if anchor_index is not None:
+            parts = parts[anchor_index:]
+
+    if not parts:
+        return None
+    if any(part == ".." for part in parts):
+        raise BackupError(f"Backup contains invalid path: {name}")
+
+    relative = Path(*parts)
+    if _should_skip_backup_path(relative):
+        return None
+    return relative
+
+
+def _should_skip_backup_path(path: Path) -> bool:
+    return path.name.endswith(".lock")
 
 
 def _encrypt_payload(payload: bytes, password: str) -> tuple[bytes, bytes]:

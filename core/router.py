@@ -41,6 +41,7 @@ def route(text: str) -> tuple[str, str]:
         try:
             answer = _run_with_retry(search_knowledge, text)
         except Exception:
+            logger.exception("Question handling failed for input: %r", text)
             return "error", _error_message()
         return "answer", answer
     else:
@@ -49,5 +50,6 @@ def route(text: str) -> tuple[str, str]:
         except MemoryLimitExceeded as e:
             return "error", str(e)
         except Exception:
+            logger.exception("Memory save failed for input: %r", text)
             return "error", _error_message()
         return "memory", response

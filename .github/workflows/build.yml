@@ -87,9 +87,8 @@ jobs:
       - name: Build with Nuitka
         env:
           NUITKA_CACHE_DIR: dist/app.build
-          CC: "ccache gcc"
-          CXX: "ccache g++"
         run: |
+          MILVUS_LITE_DIR=$(.venv/bin/python -c 'import milvus_lite, pathlib; print(pathlib.Path(milvus_lite.__file__).resolve().parent)')
           .venv/bin/python -m nuitka \
             --onefile \
             --jobs=4 \
@@ -98,6 +97,9 @@ jobs:
             --include-package=ui \
             --include-package=db \
             --include-package=pynput \
+            --include-package=milvus_lite \
+            --include-package-data=milvus_lite \
+            --include-data-dir="${MILVUS_LITE_DIR}/lib=milvus_lite/lib" \
             --output-dir=dist \
             --output-filename=${{ env.APP_NAME }} \
             --linux-icon=assets/sage.png \
@@ -201,6 +203,7 @@ jobs:
 
       - name: Build with Nuitka
         run: |
+          $MILVUS_LITE_DIR = .venv\Scripts\python -c "import milvus_lite, pathlib; print(pathlib.Path(milvus_lite.__file__).resolve().parent)"
           .venv\Scripts\python -m nuitka `
             --onefile `
             --jobs=4 `
@@ -210,6 +213,9 @@ jobs:
             --include-package=ui `
             --include-package=db `
             --include-package=pynput `
+            --include-package=milvus_lite `
+            --include-package-data=milvus_lite `
+            --include-data-dir="${MILVUS_LITE_DIR}\lib=milvus_lite/lib" `
             --output-dir=dist `
             --output-filename=${{ env.APP_NAME }}.exe `
             --windows-icon-from-ico=assets\sage.ico `
@@ -259,6 +265,7 @@ jobs:
               </Application>
             </Applications>
             <Capabilities>
+              <Capability Name="internetClient" />
               <rescap:Capability Name="runFullTrust" />
             </Capabilities>
           </Package>
@@ -328,10 +335,8 @@ jobs:
         run: .venv/bin/python packaging/generate_icon.py
 
       - name: Build with Nuitka
-        env:
-          CC: "ccache clang"
-          CXX: "ccache clang++"
         run: |
+          MILVUS_LITE_DIR=$(.venv/bin/python -c 'import milvus_lite, pathlib; print(pathlib.Path(milvus_lite.__file__).resolve().parent)')
           .venv/bin/python -m nuitka \
             --standalone \
             --jobs=4 \
@@ -341,6 +346,9 @@ jobs:
             --include-package=ui \
             --include-package=db \
             --include-package=pynput \
+            --include-package=milvus_lite \
+            --include-package-data=milvus_lite \
+            --include-data-dir="${MILVUS_LITE_DIR}/lib=milvus_lite/lib" \
             --output-dir=dist \
             --output-filename=${{ env.APP_NAME }} \
             --macos-create-app-bundle \
