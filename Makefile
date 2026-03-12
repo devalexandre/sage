@@ -59,7 +59,11 @@ build-linux:    ## Build Linux AppImage via Nuitka + appimagetool
 	}
 	$(MAKE) icon
 	$(PIP) install --quiet nuitka ordered-set zstandard
-	@MILVUS_LITE_DIR="$$( $(PYTHON) -c 'import milvus_lite, pathlib; print(pathlib.Path(milvus_lite.__file__).resolve().parent)' )"; \
+	@MILVUS_LITE_DIR="$$( $(PYTHON) -c 'import importlib.util, pathlib; spec = importlib.util.find_spec("milvus_lite"); print(pathlib.Path(spec.origin).resolve().parent if spec and spec.origin else "")' )"; \
+	MILVUS_FLAGS=""; \
+	if [ -n "$$MILVUS_LITE_DIR" ] && [ -d "$$MILVUS_LITE_DIR/lib" ]; then \
+		MILVUS_FLAGS="--include-package=milvus_lite --include-package-data=milvus_lite --include-data-dir=$$MILVUS_LITE_DIR/lib=milvus_lite/lib"; \
+	fi; \
 	$(PYTHON) -m nuitka \
 		--onefile \
 		--enable-plugin=pyside6 \
@@ -67,9 +71,7 @@ build-linux:    ## Build Linux AppImage via Nuitka + appimagetool
 		--include-package=ui \
 		--include-package=db \
 		--include-package=pynput \
-		--include-package=milvus_lite \
-		--include-package-data=milvus_lite \
-		--include-data-dir="$$MILVUS_LITE_DIR/lib=milvus_lite/lib" \
+		$$MILVUS_FLAGS \
 		--output-dir=dist \
 		--output-filename=$(APPNAME) \
 		--linux-icon=assets/sage.png \
@@ -94,16 +96,18 @@ build-windows:  ## Build Windows installer via Nuitka + Inno Setup  (run on Wind
 	@$(MAKE) check-python
 	$(MAKE) icon
 	$(PIP) install --quiet nuitka ordered-set zstandard
-	@MILVUS_LITE_DIR="$$( $(PYTHON) -c 'import milvus_lite, pathlib; print(pathlib.Path(milvus_lite.__file__).resolve().parent)' )"; \
+	@MILVUS_LITE_DIR="$$( $(PYTHON) -c 'import importlib.util, pathlib; spec = importlib.util.find_spec("milvus_lite"); print(pathlib.Path(spec.origin).resolve().parent if spec and spec.origin else "")' )"; \
+	MILVUS_FLAGS=""; \
+	if [ -n "$$MILVUS_LITE_DIR" ] && [ -d "$$MILVUS_LITE_DIR/lib" ]; then \
+		MILVUS_FLAGS="--include-package=milvus_lite --include-package-data=milvus_lite --include-data-dir=$$MILVUS_LITE_DIR/lib=milvus_lite/lib"; \
+	fi; \
 	$(PYTHON) -m nuitka \
 		--onefile \
 		--enable-plugin=pyside6 \
 		--include-package=core \
 		--include-package=ui \
 		--include-package=db \
-		--include-package=milvus_lite \
-		--include-package-data=milvus_lite \
-		--include-data-dir="$$MILVUS_LITE_DIR/lib=milvus_lite/lib" \
+		$$MILVUS_FLAGS \
 		--output-dir=dist \
 		--output-filename=$(APPNAME).exe \
 		--windows-icon-from-ico=assets/sage.ico \
