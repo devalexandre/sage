@@ -8,24 +8,45 @@ from pathlib import Path
 from dotenv import load_dotenv
 from PySide6.QtCore import QEventLoop, QObject, QThread, Signal
 from PySide6.QtWidgets import QApplication, QMessageBox, QStyleFactory, QSystemTrayIcon
+from core.paths import DATA_DIR, ensure_data_dir
 
 # Load .env from project root (fallback to home)
 load_dotenv(Path(__file__).parent / ".env")
-load_dotenv(Path.home() / ".sage" / ".env")
+load_dotenv(ensure_data_dir() / ".env")
 
 # ── Logging setup ────────────────────────────────────────────────────────────
-LOG_DIR = Path.home() / ".sage"
+LOG_DIR = DATA_DIR
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 LOG_FILE = LOG_DIR / "sage.log"
 
-_handler = logging.handlers.RotatingFileHandler(
-    LOG_FILE, maxBytes=1_000_000, backupCount=3, encoding="utf-8",
-)
-_handler.setFormatter(logging.Formatter(
-    "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-))
-logging.basicConfig(level=logging.INFO, handlers=[_handler])
+
+def _should_log_to_console() -> bool:
+    if os.environ.get("SAGE_LOG_TO_CONSOLE", "").strip().lower() in {"1", "true", "yes"}:
+        return True
+    return not getattr(sys, "frozen", False)
+
+
+def _build_log_handlers() -> list[logging.Handler]:
+    formatter = logging.Formatter(
+        "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+
+    file_handler = logging.handlers.RotatingFileHandler(
+        LOG_FILE, maxBytes=1_000_000, backupCount=3, encoding="utf-8",
+    )
+    file_handler.setFormatter(formatter)
+    handlers: list[logging.Handler] = [file_handler]
+
+    if _should_log_to_console():
+        console_handler = logging.StreamHandler()
+        console_handler.setFormatter(formatter)
+        handlers.append(console_handler)
+
+    return handlers
+
+
+logging.basicConfig(level=logging.INFO, handlers=_build_log_handlers(), force=True)
 logger = logging.getLogger("sage")
 
 
@@ -203,16 +224,16 @@ def main() -> None:
     _update_thread.run = _check_update  # type: ignore[method-assign]
     _update_thread.start()
 
-    # ── Step 7: migrate SQLite → Milvus (one-time, background) ──────────────
+    # ── Step 7: migrate legacy memories into local SQLite storage (one-time) ──
     def _run_migration() -> None:
         try:
             from core.migrate import run_startup_migrations
 
             result = run_startup_migrations()
             if (
-                result["sqlite_to_milvus"]
-                or result["legacy_milvus_reindexed"]
-                or result["legacy_vault_rows_cleaned"]
+                result["legacy_sqlite_imported"]
+                or result["legacy_milvus_imported"]
+                or result["qdrant_to_sqlite"]
             ):
                 logger.info("Startup migrations completed: %s", result)
         except Exception:

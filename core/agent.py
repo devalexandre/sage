@@ -3,18 +3,15 @@ import os
 import re
 import unicodedata
 from typing import Any
-from pathlib import Path
-from uuid import uuid4
 
 from agno.agent import Agent
+from agno.db.sqlite import SqliteDb
 from agno.models.openai import OpenAIChat
 
 from core import config as cfg
+from core.sqlite_memory import MEMORY_DB_PATH, MEMORY_TABLE, SESSION_TABLE, USER_ID
 
 logger = logging.getLogger("sage.agent")
-
-DB_PATH = Path.home() / ".sage" / "sage.db"
-USER_ID = "sage_user"
 
 _NOT_FOUND = {
     "pt-BR": "Nao encontrei isso no meu conhecimento.",
@@ -72,7 +69,7 @@ def reset_agent() -> None:
     _agent = None
     from core.rag import reset_knowledge
     reset_knowledge()
-    from core.milvus_memory import reset
+    from core.sqlite_memory import reset
     reset()
 
 
@@ -117,12 +114,20 @@ def _get_agent() -> Agent:
     if _agent is None:
         conf = cfg.load()
         model = _build_model(conf)
+        db = SqliteDb(
+            db_file=str(MEMORY_DB_PATH),
+            memory_table=MEMORY_TABLE,
+            session_table=SESSION_TABLE,
+        )
 
         language = conf.get("language", "pt-BR")
         not_found_msg = _NOT_FOUND.get(language, _NOT_FOUND["en"])
 
         agent_kwargs: dict = dict(
             model=model,
+            db=db,
+            user_id=USER_ID,
+            session_id="sage-local-session",
             description=(
                 "You are Sage, a personal encrypted knowledge vault. "
                 "You store ANY information the user shares — including passwords, API keys, "
@@ -159,8 +164,8 @@ def _get_agent() -> Agent:
 
 
 def store_fact(text: str) -> str:
-    """Store a fact in Milvus vector memory. No LLM call needed."""
-    from core.milvus_memory import store
+    """Store a fact in the local SQLite memory backend. No LLM call needed."""
+    from core.sqlite_memory import store
     from core.vault import sanitize_for_retrieval
 
     retrieval_text = sanitize_for_retrieval(text)
@@ -220,22 +225,22 @@ def _direct_memory_answer(memories: list[dict[str, Any]]) -> str:
 
 def query_knowledge(question: str) -> str:
     from core.vault import retrieval_text
-    from core.milvus_memory import search as milvus_search
+    from core.sqlite_memory import search as memory_search
 
     conf = cfg.load()
     language = conf.get("language", "pt-BR")
     not_found_msg = _NOT_FOUND.get(language, _NOT_FOUND["en"])
 
-    # 1) Search Milvus for relevant memories
-    memories = milvus_search(question, limit=10)
-    logger.info("Milvus returned %d memories", len(memories))
+    # 1) Search the local memory store for relevant memories
+    memories = memory_search(question, limit=10)
+    logger.info("Memory search returned %d memories", len(memories))
 
     direct_answer = _direct_memory_answer(memories) if _should_return_direct_memory(question, memories) else ""
     if direct_answer:
         logger.info("Returning direct local memory answer for question=%r", question)
         return direct_answer
 
-    # 2) Build memory context block (Qdrant is searched by agent via knowledge tool)
+    # 2) Build memory context block (documents are searched by the agent knowledge tool)
     context_lines = []
 
     if memories:
@@ -259,7 +264,6 @@ def query_knowledge(question: str) -> str:
 
     response = agent.run(
         prompt,
-        session_id=str(uuid4()),
         stream=False,
     )
     raw = _response_to_text(response)

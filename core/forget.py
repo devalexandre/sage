@@ -8,13 +8,13 @@ Pro users: configurable retention period with soft-delete (marked as forgotten).
 
 import logging
 import time
-from pathlib import Path
 
 from core import config as cfg
+from core.paths import DATA_DIR, ensure_data_dir
 
 logger = logging.getLogger("sage.forget")
 
-_FORGOTTEN_PATH = Path.home() / ".sage" / "forgotten.json"
+_FORGOTTEN_PATH = DATA_DIR / "forgotten.json"
 
 
 def _load_forgotten() -> dict:
@@ -30,7 +30,7 @@ def _load_forgotten() -> dict:
 
 def _save_forgotten(data: dict) -> None:
     import json
-    _FORGOTTEN_PATH.parent.mkdir(parents=True, exist_ok=True)
+    ensure_data_dir()
     _FORGOTTEN_PATH.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
 
@@ -64,8 +64,8 @@ def unmark_forgotten_memories(memory_ids: list[str]) -> int:
 
 
 def permanently_delete_memories(memory_ids: list[str]) -> int:
-    """Hard-delete memories from Milvus and remove from forgotten registry."""
-    from core.milvus_memory import delete_by_id
+    """Hard-delete memories from local SQLite storage and remove from forgotten registry."""
+    from core.sqlite_memory import delete_by_id
 
     count = 0
     for mid in memory_ids:
@@ -91,7 +91,7 @@ def run_cleanup() -> dict:
 
     Returns: {"memories_deleted": N}
     """
-    from core.milvus_memory import get_all, delete_by_id
+    from core.sqlite_memory import delete_by_id, get_all
 
     conf = cfg.load()
     plan = conf.get("user_plan", "free")

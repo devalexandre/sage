@@ -3,6 +3,7 @@ import io
 import json
 import zipfile
 from pathlib import Path
+from unittest.mock import patch
 
 from core import backup
 
@@ -20,15 +21,15 @@ def _write_backup(tmp_path: Path, payload: bytes, password: str) -> Path:
     return target
 
 
-def test_export_backup_skips_lock_files(tmp_path, monkeypatch):
-    data_dir = tmp_path / "data"
-    data_dir.mkdir()
-    (data_dir / "config.json").write_text("{}", encoding="utf-8")
-    (data_dir / ".milvus.db.lock").write_text("busy", encoding="utf-8")
-
-    monkeypatch.setattr(backup, "DATA_DIR", data_dir)
-
-    exported = backup.export_backup(tmp_path / "out.sagebackup", "secret")
+def test_export_backup_contains_sqlite_memory_snapshot_only(tmp_path):
+    snapshot = {
+        "format": "agno_sqlite_memory_v1",
+        "memories": [{"id": "1", "content": "mem", "meta_data": {"created_at": 1}}],
+    }
+    with patch("core.sqlite_memory.flush"), \
+         patch("core.sqlite_memory.reset"), \
+         patch("core.sqlite_memory.export_memory_snapshot", return_value=snapshot):
+        exported = backup.export_backup(tmp_path / "out.sagebackup", "secret")
     document = json.loads(exported.read_text(encoding="utf-8"))
     payload = backup._decrypt_payload(
         base64.b64decode(document["payload"]),
@@ -37,22 +38,42 @@ def test_export_backup_skips_lock_files(tmp_path, monkeypatch):
     )
 
     with zipfile.ZipFile(io.BytesIO(payload), "r") as archive:
-        assert archive.namelist() == ["config.json"]
+        assert archive.namelist() == ["sqlite_memories.json"]
 
 
-def test_import_backup_normalizes_legacy_qdrant_paths(tmp_path, monkeypatch):
-    data_dir = tmp_path / "restored"
-    monkeypatch.setattr(backup, "DATA_DIR", data_dir)
-
+def test_import_backup_normalizes_legacy_memory_export_paths(tmp_path):
     payload = io.BytesIO()
     with zipfile.ZipFile(payload, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-        archive.writestr("../../home/devalexandre/sage/qdrant_storage/aliases/data.json", '{"ok":true}')
+        archive.writestr(
+            "/home/devalexandre/.sage/sqlite_memories.json",
+            json.dumps({"format": "agno_sqlite_memory_v1", "memories": []}),
+        )
         archive.writestr("/home/devalexandre/.sage/config.json", '{"language":"pt-BR"}')
-        archive.writestr("../../home/devalexandre/.sage/.milvus.db.lock", "busy")
 
     source = _write_backup(tmp_path, payload.getvalue(), "secret")
-    backup.import_backup(source, "secret")
+    with patch("core.sqlite_memory.reset"), \
+         patch("core.sqlite_memory.import_memory_snapshot") as import_mock:
+        backup.import_backup(source, "secret")
 
-    assert (data_dir / "config.json").read_text(encoding="utf-8") == '{"language":"pt-BR"}'
-    assert (data_dir / "qdrant_storage" / "aliases" / "data.json").read_text(encoding="utf-8") == '{"ok":true}'
-    assert not (data_dir / ".milvus.db.lock").exists()
+    import_mock.assert_called_once_with({"format": "agno_sqlite_memory_v1", "memories": []})
+
+
+def test_import_backup_restores_memory_snapshot_only(tmp_path):
+    payload = io.BytesIO()
+    with zipfile.ZipFile(payload, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr(
+            "sqlite_memories.json",
+            json.dumps(
+                {
+                    "format": "agno_sqlite_memory_v1",
+                    "memories": [{"id": "abc", "content": "note", "meta_data": {"created_at": 1}}],
+                }
+            ),
+        )
+
+    source = _write_backup(tmp_path, payload.getvalue(), "secret")
+    with patch("core.sqlite_memory.reset"), \
+         patch("core.sqlite_memory.import_memory_snapshot") as import_mock:
+        backup.import_backup(source, "secret")
+
+    import_mock.assert_called_once()

@@ -4,7 +4,8 @@ from db.sqlite import insert_entry
 
 
 def save_memory(text: str) -> str:
-    """Persist a note to SQLite log and store in Milvus vector memory."""
+    """Persist a note to the local history log and SQLite memory store."""
     enforce_limit()
+    result = store_fact(text)
     insert_entry(text, kind="memory")
-    return store_fact(text)
+    return result

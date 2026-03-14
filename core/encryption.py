@@ -11,11 +11,12 @@ Key lifecycle:
 import base64
 import os
 import stat
-from pathlib import Path
 
 from cryptography.fernet import Fernet, InvalidToken
 
-KEY_PATH = Path.home() / ".sage" / "enc.key"
+from core.paths import DATA_DIR, ensure_data_dir
+
+KEY_PATH = DATA_DIR / "enc.key"
 
 
 class EncryptionKeyMissing(Exception):
@@ -82,7 +83,7 @@ def decrypt_text(ciphertext: str, fernet: Fernet) -> str:
 # ── internal helpers ──────────────────────────────────────────────────────────
 
 def _write_key(raw: bytes) -> None:
-    KEY_PATH.parent.mkdir(parents=True, exist_ok=True)
+    ensure_data_dir()
     KEY_PATH.write_bytes(raw)
     try:
         KEY_PATH.chmod(stat.S_IRUSR | stat.S_IWUSR)  # 0o600

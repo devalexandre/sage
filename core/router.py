@@ -3,6 +3,7 @@ import logging
 from core import config as cfg
 from core.license import MemoryLimitExceeded
 from core.memory import save_memory
+from core.qdrant_common import QdrantConfigurationError
 from core.search import search_knowledge
 
 logger = logging.getLogger("sage.router")
@@ -48,6 +49,8 @@ def route(text: str) -> tuple[str, str]:
         try:
             response = _run_with_retry(save_memory, text)
         except MemoryLimitExceeded as e:
+            return "error", str(e)
+        except QdrantConfigurationError as e:
             return "error", str(e)
         except Exception:
             logger.exception("Memory save failed for input: %r", text)

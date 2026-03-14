@@ -11,6 +11,7 @@ from pathlib import Path
 
 from core import config as cfg
 from core.license import require_pro
+from core.qdrant_common import QdrantConfigurationError, resolve_qdrant_url
 
 logger = logging.getLogger("sage.rag")
 
@@ -55,7 +56,7 @@ def _build_vector_db(conf: dict, embedder):
 
     return Qdrant(
         collection=conf.get("qdrant_collection", "sage_documents"),
-        url=conf.get("qdrant_url", ""),
+        url=resolve_qdrant_url(conf),
         api_key=conf.get("qdrant_api_key", "") or None,
         embedder=embedder,
         search_type=SearchType.hybrid,
@@ -72,7 +73,7 @@ def get_knowledge(conf: dict | None = None):
     if conf is None:
         conf = cfg.load()
 
-    qdrant_url = conf.get("qdrant_url", "").strip()
+    qdrant_url = resolve_qdrant_url(conf)
     if not qdrant_url:
         return None  # user hasn't configured Qdrant yet
 
@@ -131,6 +132,12 @@ def ingest_file(file_path: str) -> str:
         )
 
     conf = cfg.load()
+    qdrant_url = resolve_qdrant_url(conf)
+    if not qdrant_url:
+        raise QdrantConfigurationError(
+            "Document upload requires Qdrant. Configure a Qdrant URL in Settings > Documents "
+            "or enable 'Run Qdrant with Docker'."
+        )
     knowledge = get_knowledge(conf)
     if knowledge is None:
         raise RuntimeError(

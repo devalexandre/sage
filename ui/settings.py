@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
 )
 
 from core import config as cfg
+from core.paths import DATA_DIR
 
 _OS = platform.system()  # "Linux", "Darwin", "Windows"
 
@@ -367,7 +368,7 @@ class SageSettings(QWidget):
         backup_row.addWidget(self._backup_import_btn)
         lay.addLayout(backup_row)
 
-        self._backup_status = QLabel("Encrypted backup file for your local Sage data.")
+        self._backup_status = QLabel("Encrypted backup file for your local memory database.")
         self._backup_status.setWordWrap(True)
         self._backup_status.setStyleSheet(f"color: {_MUTED}; font-size: 11px;")
         lay.addWidget(self._backup_status)
@@ -683,7 +684,7 @@ class SageSettings(QWidget):
     def _load_memories(self) -> None:
         self._memory_list.clear()
         try:
-            from core.milvus_memory import get_all
+            from core.sqlite_memory import get_all
             memories = get_all()
             for mem in memories:
                 text = mem.get("content", "")
@@ -696,6 +697,7 @@ class SageSettings(QWidget):
             self._mem_status.setStyleSheet(f"color: {_MUTED}; font-size: 11px;")
             self._mem_status.setText(f"{len(memories)} memories")
         except Exception as e:
+            logging.getLogger("sage.settings").exception("Failed to load memories")
             self._mem_status.setStyleSheet(f"color: {_RED}; font-size: 11px;")
             self._mem_status.setText(f"Error: {e}")
 
@@ -730,7 +732,7 @@ class SageSettings(QWidget):
                 self._mem_status.setText(f"Marked {count} as forgotten.")
                 self._load_forgotten()
             else:
-                from core.milvus_memory import delete_by_id
+                from core.sqlite_memory import delete_by_id
                 for mid in selected_ids:
                     delete_by_id(mid)
                 from core.agent import reset_agent
@@ -903,7 +905,7 @@ class SageSettings(QWidget):
         self._forgotten_list.clear()
         try:
             from core.forget import get_forgotten
-            from core.milvus_memory import get_all
+            from core.sqlite_memory import get_all
             import time
 
             forgotten = get_forgotten()
@@ -1177,7 +1179,7 @@ class SageSettings(QWidget):
         result = QMessageBox.question(
             self,
             "Import backup",
-            "Importing a backup will replace your current local Sage data. Continue?",
+            "Importing a backup will replace your current local memory database. Continue?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
@@ -1191,20 +1193,20 @@ class SageSettings(QWidget):
         try:
             from core.agent import reset_agent
             from core.backup import BackupError, import_backup
-            from core.milvus_memory import reset as reset_milvus
+            from core.sqlite_memory import reset as reset_memory_store
             from core.rag import reset_knowledge
 
             import_backup(path, password)
             reset_agent()
-            reset_milvus()
+            reset_memory_store()
             reset_knowledge()
             self._backup_status.setStyleSheet(f"color: {_GREEN}; font-size: 11px;")
-            self._backup_status.setText("Backup imported. Restart Sage before using memories/documents.")
+            self._backup_status.setText("Memory backup imported. Restart Sage before using restored memories.")
             self._load_fields()
             QMessageBox.information(
                 self,
                 "Backup imported",
-                "Backup imported successfully.\n\nRestart Sage before using restored memories and documents.",
+                "Memory backup imported successfully.\n\nRestart Sage before using restored memories.",
             )
         except BackupError as exc:
             self._backup_status.setStyleSheet(f"color: {_RED}; font-size: 11px;")
@@ -1254,7 +1256,7 @@ class SageSettings(QWidget):
 
     def _start_qdrant_docker(self) -> None:
         logger = logging.getLogger("sage.settings")
-        storage = Path.home() / ".sage" / "qdrant_storage"
+        storage = DATA_DIR / "qdrant_storage"
         storage.mkdir(parents=True, exist_ok=True)
 
         # Check if container already running

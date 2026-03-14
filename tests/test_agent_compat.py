@@ -4,7 +4,7 @@ from agno.run.agent import RunCompletedEvent
 
 from core.agent import _direct_memory_answer, _response_to_text, _should_return_direct_memory
 from core.config import _DEFAULTS
-from core.milvus_memory import _query_tokens, _select_lexical_matches
+from core.sqlite_memory import _query_tokens, _select_lexical_matches
 from core.vault import sanitize_for_retrieval
 
 

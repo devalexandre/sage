@@ -5,9 +5,10 @@ Local license helpers and stable device identity.
 import hashlib
 import platform
 import uuid
-from pathlib import Path
 
-_DEVICE_ID_PATH = Path.home() / ".sage" / "device_id"
+from core.paths import DATA_DIR, ensure_data_dir
+
+_DEVICE_ID_PATH = DATA_DIR / "device_id"
 
 
 # ── device identity ───────────────────────────────────────────────────────────
@@ -18,7 +19,7 @@ def get_device_id() -> str:
         return _DEVICE_ID_PATH.read_text().strip()
     raw = f"{platform.node()}-{uuid.getnode()}-{platform.machine()}"
     device_id = hashlib.sha256(raw.encode()).hexdigest()
-    _DEVICE_ID_PATH.parent.mkdir(parents=True, exist_ok=True)
+    ensure_data_dir()
     _DEVICE_ID_PATH.write_text(device_id)
     return device_id
 
@@ -45,7 +46,7 @@ def require_pro(feature: str = "This feature") -> None:
 
 
 def count_memories() -> int:
-    from core.milvus_memory import count
+    from core.sqlite_memory import count
     return count()
 
 

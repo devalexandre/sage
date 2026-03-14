@@ -19,7 +19,7 @@ Sage does **not** collect, transmit, or share any personal data. Specifically:
 
 Sage stores the following data exclusively on your device:
 
-- **Memories** — Text entries you save, stored as encrypted vector embeddings in a local Milvus database.
+- **Memories** — Text entries you save, stored as encrypted vector embeddings in a dedicated local Qdrant collection.
 - **Documents** — Files you import for knowledge search, indexed locally via Qdrant.
 - **History** — A local SQLite log of your interactions.
 - **Configuration** — Your settings (language, provider preferences), stored in a local config file.

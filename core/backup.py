@@ -2,8 +2,6 @@ import base64
 import io
 import json
 import os
-import shutil
-import tempfile
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
@@ -13,19 +11,12 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
 
-DATA_DIR = Path.home() / ".sage"
 BACKUP_SUFFIX = ".sagebackup"
 _MAGIC = "SAGE_BACKUP_V1"
 _ITERATIONS = 390_000
+_MEMORY_EXPORT_NAME = "sqlite_memories.json"
 _KNOWN_TOP_LEVEL_NAMES = {
-    "config.json",
-    "device_id",
-    "enc.key",
-    "forgotten.json",
-    "history.db",
-    "milvus.db",
-    "qdrant_storage",
-    "sage.log",
+    _MEMORY_EXPORT_NAME,
 }
 
 
@@ -36,22 +27,23 @@ class BackupError(Exception):
 def export_backup(destination: str | Path, password: str) -> Path:
     if not password:
         raise BackupError("Backup password is required.")
-    if not DATA_DIR.exists():
-        raise BackupError("No local Sage data found to export.")
 
     try:
-        from core.milvus_memory import flush as flush_milvus
-        from core.milvus_memory import reset as reset_milvus
+        from core.sqlite_memory import export_memory_snapshot, flush, reset
 
-        flush_milvus()
-        reset_milvus()
-    except Exception:
-        pass
+        flush()
+        reset()
+        snapshot = export_memory_snapshot()
+    except Exception as exc:
+        raise BackupError(f"Memory backup export failed: {exc}") from exc
+
+    if not snapshot.get("memories"):
+        raise BackupError("No local Sage memories found to export.")
 
     destination = Path(destination)
     destination.parent.mkdir(parents=True, exist_ok=True)
 
-    payload = _zip_data_dir()
+    payload = _build_backup_payload(snapshot)
     token, salt = _encrypt_payload(payload, password)
     document = {
         "magic": _MAGIC,
@@ -88,65 +80,41 @@ def import_backup(source: str | Path, password: str) -> None:
     payload = _decrypt_payload(token, salt, password)
 
     try:
-        from core.milvus_memory import reset as reset_milvus
+        snapshot = _load_backup_payload(payload)
+    except Exception as exc:
+        raise BackupError("Backup contents could not be restored.") from exc
 
-        reset_milvus()
-    except Exception:
-        pass
+    try:
+        from core.sqlite_memory import import_memory_snapshot, reset
 
-    with tempfile.TemporaryDirectory(prefix="sage-import-") as temp_dir:
-        restore_dir = Path(temp_dir) / "restore"
-        restore_dir.mkdir(parents=True, exist_ok=True)
-        try:
-            with zipfile.ZipFile(io.BytesIO(payload), "r") as archive:
-                _extract_archive(archive, restore_dir)
-        except Exception as exc:
-            raise BackupError("Backup contents could not be restored.") from exc
-
-        previous_dir = Path(temp_dir) / "previous"
-        had_existing = DATA_DIR.exists()
-
-        if had_existing:
-            shutil.move(str(DATA_DIR), str(previous_dir))
-
-        try:
-            shutil.copytree(restore_dir, DATA_DIR)
-        except Exception as exc:
-            if DATA_DIR.exists():
-                shutil.rmtree(DATA_DIR, ignore_errors=True)
-            if had_existing and previous_dir.exists():
-                shutil.move(str(previous_dir), str(DATA_DIR))
-            raise BackupError("Backup contents could not be restored.") from exc
+        reset()
+        import_memory_snapshot(snapshot)
+        reset()
+    except Exception as exc:
+        raise BackupError(f"Backup contents could not be restored: {exc}") from exc
 
 
-def _zip_data_dir() -> bytes:
+def _build_backup_payload(snapshot: dict) -> bytes:
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-        for path in sorted(DATA_DIR.rglob("*")):
-            if not path.is_file():
-                continue
-            relative = path.relative_to(DATA_DIR)
-            if _should_skip_backup_path(relative):
-                continue
-            archive.write(path, relative)
+        archive.writestr(
+            _MEMORY_EXPORT_NAME,
+            json.dumps(snapshot, ensure_ascii=True),
+        )
     return buffer.getvalue()
 
 
-def _extract_archive(archive: zipfile.ZipFile, restore_dir: Path) -> None:
-    for info in archive.infolist():
-        relative = _normalize_backup_member(info.filename)
-        if relative is None:
-            continue
-
-        destination = restore_dir / relative
-        destination.parent.mkdir(parents=True, exist_ok=True)
-
-        if info.is_dir():
-            destination.mkdir(parents=True, exist_ok=True)
-            continue
-
-        with archive.open(info, "r") as src, destination.open("wb") as dst:
-            shutil.copyfileobj(src, dst)
+def _load_backup_payload(payload: bytes) -> dict:
+    with zipfile.ZipFile(io.BytesIO(payload), "r") as archive:
+        for info in archive.infolist():
+            relative = _normalize_backup_member(info.filename)
+            if relative is None:
+                continue
+            if relative.name != _MEMORY_EXPORT_NAME:
+                continue
+            with archive.open(info, "r") as src:
+                return json.loads(src.read().decode("utf-8"))
+    raise BackupError("Backup contents could not be restored.")
 
 
 def _normalize_backup_member(name: str) -> Path | None:
@@ -172,13 +140,9 @@ def _normalize_backup_member(name: str) -> Path | None:
         raise BackupError(f"Backup contains invalid path: {name}")
 
     relative = Path(*parts)
-    if _should_skip_backup_path(relative):
+    if relative.name not in _KNOWN_TOP_LEVEL_NAMES:
         return None
     return relative
-
-
-def _should_skip_backup_path(path: Path) -> bool:
-    return path.name.endswith(".lock")
 
 
 def _encrypt_payload(payload: bytes, password: str) -> tuple[bytes, bytes]:
