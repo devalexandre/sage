@@ -88,7 +88,6 @@ jobs:
         env:
           NUITKA_CACHE_DIR: dist/app.build
         run: |
-          MILVUS_LITE_DIR=$(.venv/bin/python -c 'import milvus_lite, pathlib; print(pathlib.Path(milvus_lite.__file__).resolve().parent)')
           .venv/bin/python -m nuitka \
             --onefile \
             --jobs=4 \
@@ -97,9 +96,6 @@ jobs:
             --include-package=ui \
             --include-package=db \
             --include-package=pynput \
-            --include-package=milvus_lite \
-            --include-package-data=milvus_lite \
-            --include-data-dir="${MILVUS_LITE_DIR}/lib=milvus_lite/lib" \
             --output-dir=dist \
             --output-filename=${{ env.APP_NAME }} \
             --linux-icon=assets/sage.png \
@@ -203,7 +199,6 @@ jobs:
 
       - name: Build with Nuitka
         run: |
-          $MILVUS_LITE_DIR = .venv\Scripts\python -c "import importlib.util, pathlib; spec = importlib.util.find_spec('milvus_lite'); print(pathlib.Path(spec.origin).resolve().parent if spec and spec.origin else '')"
           $nuitkaArgs = @(
             "--onefile",
             "--jobs=4",
@@ -224,15 +219,6 @@ jobs:
             "--file-description=Sage - Personal Knowledge Widget",
             "app.py"
           )
-          if ($LASTEXITCODE -eq 0 -and $MILVUS_LITE_DIR -and (Test-Path (Join-Path $MILVUS_LITE_DIR "lib"))) {
-            $nuitkaArgs = @(
-              "--include-package=milvus_lite",
-              "--include-package-data=milvus_lite",
-              "--include-data-dir=$MILVUS_LITE_DIR\lib=milvus_lite/lib"
-            ) + $nuitkaArgs
-          } else {
-            Write-Host "milvus_lite not installed on this runner; building without bundled milvus_lite assets."
-          }
           .venv\Scripts\python -m nuitka @nuitkaArgs
 
       # ── MSIX package (unsigned — Microsoft Store signs it) ──
@@ -344,7 +330,6 @@ jobs:
 
       - name: Build with Nuitka
         run: |
-          MILVUS_LITE_DIR=$(.venv/bin/python -c 'import milvus_lite, pathlib; print(pathlib.Path(milvus_lite.__file__).resolve().parent)')
           .venv/bin/python -m nuitka \
             --standalone \
             --jobs=4 \
@@ -354,9 +339,6 @@ jobs:
             --include-package=ui \
             --include-package=db \
             --include-package=pynput \
-            --include-package=milvus_lite \
-            --include-package-data=milvus_lite \
-            --include-data-dir="${MILVUS_LITE_DIR}/lib=milvus_lite/lib" \
             --output-dir=dist \
             --output-filename=${{ env.APP_NAME }} \
             --macos-create-app-bundle \
