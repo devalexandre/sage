@@ -45,14 +45,13 @@ def route(text: str) -> tuple[str, str]:
             logger.exception("Question handling failed for input: %r", text)
             return "error", _error_message()
         return "answer", answer
-    else:
-        try:
-            response = _run_with_retry(save_memory, text)
-        except MemoryLimitExceeded as e:
-            return "error", str(e)
-        except QdrantConfigurationError as e:
-            return "error", str(e)
-        except Exception:
-            logger.exception("Memory save failed for input: %r", text)
-            return "error", _error_message()
-        return "memory", response
+    try:
+        response = _run_with_retry(save_memory, text)
+    except MemoryLimitExceeded as e:
+        return "error", str(e)
+    except QdrantConfigurationError as e:
+        return "error", str(e)
+    except Exception:
+        logger.exception("Memory save failed for input: %r", text)
+        return "error", _error_message()
+    return "memory", response

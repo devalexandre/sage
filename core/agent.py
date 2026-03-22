@@ -103,10 +103,13 @@ def _build_model(conf: dict):
     api_key = conf.get("openai_api_key", "").strip()
     if api_key:
         os.environ["OPENAI_API_KEY"] = api_key
+    else:
+        os.environ.pop("OPENAI_API_KEY", None)
     return OpenAIChat(
         id=conf.get("openai_model", "gpt-4o-mini"),
         temperature=0.0,
-        )
+        api_key=api_key or None,
+    )
 
 
 def _get_agent() -> Agent:

@@ -39,6 +39,8 @@ def _build_defaults() -> dict:
         "hotkey": "F10",
         # Language
         "language": "pt-BR",
+        # Onboarding
+        "onboarding_opt_out": False,
         # Qdrant
         "qdrant_docker": False,
         "qdrant_url": "",

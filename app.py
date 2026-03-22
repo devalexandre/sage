@@ -77,6 +77,56 @@ def _sanitize_qt_style_override() -> None:
     os.environ.pop("QT_STYLE_OVERRIDE", None)
 
 
+def _show_onboarding_if_needed(
+    tray,
+    conf: dict,
+    *,
+    anchor=None,
+    dialog_factory=None,
+    save_conf=None,
+) -> object | None:
+    if conf.get("onboarding_opt_out"):
+        return None
+
+    if dialog_factory is None:
+        from ui.onboarding import SageOnboardingDialog
+
+        dialog_factory = SageOnboardingDialog
+    if save_conf is None:
+        from core import config as cfg
+
+        save_conf = cfg.save
+
+    dialog = dialog_factory(conf.get("language", "pt-BR"))
+
+    def _on_completed() -> None:
+        if dialog.skip_future_onboarding():
+            updated_conf = dict(conf)
+            updated_conf["onboarding_opt_out"] = True
+            save_conf(updated_conf)
+        if getattr(tray, "_onboarding_dialog", None) is dialog:
+            tray._onboarding_dialog = None
+
+    dialog.open_settings_requested.connect(tray._open_settings)
+    dialog.completed.connect(_on_completed)
+    if hasattr(dialog, "position_near"):
+        dialog.position_near(anchor)
+    dialog.show()
+    dialog.raise_()
+    dialog.activateWindow()
+    tray._onboarding_dialog = dialog
+    return dialog
+
+
+def _show_startup_windows(tray, conf: dict) -> bool:
+    if not conf.get("order_id"):
+        tray._account.toggle()
+    else:
+        tray.showMessage("Sage", "Ready. Click the icon to open.", tray.icon(), 2000)
+
+    return bool(_show_onboarding_if_needed(tray, conf, anchor=tray._account))
+
+
 def main() -> None:
     logger.info("Sage starting...")
     _sanitize_qt_style_override()
@@ -97,7 +147,8 @@ def main() -> None:
     )
     from db.sqlite import set_fernet
 
-    if not key_exists():
+    is_first_launch = not key_exists()
+    if is_first_launch:
         phrase = first_run_init()
         from ui.recovery import SageRecoveryDialog
         recovery = SageRecoveryDialog(phrase)
@@ -183,6 +234,7 @@ def main() -> None:
     tray = SageTray()
     tray.show()
     logger.info("Step 4 OK: tray visible.")
+    _show_startup_windows(tray, conf)
 
     # ── Step 5: global hotkey ─────────────────────────────────────────────────
     logger.info("Step 5: starting hotkey listener...")
@@ -256,12 +308,6 @@ def main() -> None:
     _forget_thread = QThread()
     _forget_thread.run = _run_forget  # type: ignore[method-assign]
     _forget_thread.start()
-
-    # If no order_id saved yet, open Account dialog so user can activate
-    if not conf.get("order_id"):
-        tray._account.toggle()
-    else:
-        tray.showMessage("Sage", "Ready. Click the icon to open.", tray.icon(), 2000)
 
     logger.info("Sage ready — entering event loop.")
     sys.exit(app.exec())

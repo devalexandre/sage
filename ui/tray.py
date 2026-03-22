@@ -12,6 +12,7 @@ class SageTray(QSystemTrayIcon):
         super().__init__(_build_icon())
         self.setToolTip("Sage")
 
+        self._before_open_popup = None
         self._popup    = SagePopup()
         self._settings = SageSettings()
         self._account  = SageAccount()
@@ -33,11 +34,16 @@ class SageTray(QSystemTrayIcon):
         menu.addAction("Quit", QApplication.quit)
         self.setContextMenu(menu)
 
+    def set_before_open_popup(self, callback) -> None:
+        self._before_open_popup = callback
+
     def _on_activated(self, reason: QSystemTrayIcon.ActivationReason) -> None:
         if reason == QSystemTrayIcon.ActivationReason.Trigger:
             self._open_popup()
 
     def _open_popup(self) -> None:
+        if self._before_open_popup is not None and self._before_open_popup():
+            return
         self._settings.hide()
         self._account.hide()
         self._popup.toggle()

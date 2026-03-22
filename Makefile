@@ -3,7 +3,7 @@ PYTHON_BIN ?= python3.12
 PYTHON  := $(VENV)/bin/python
 PIP     := $(VENV)/bin/pip
 APPNAME := sage
-VERSION := 0.1.3
+VERSION := 0.1.7
 PKGREL  := 5
 
 .PHONY: help setup build build-linux build-windows build-deb build-arch install run icon clean

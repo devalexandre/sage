@@ -151,6 +151,11 @@ class SagePopup(QWidget):
         title_row.addWidget(close_btn)
         layout.addLayout(title_row)
 
+        hint = QLabel("Type a note to save it. End with ? to ask from memory or documents.")
+        hint.setWordWrap(True)
+        hint.setStyleSheet(f"color: {_MUTED}; font-size: 11px;")
+        layout.addWidget(hint)
+
         # history
         self._history_widget = QWidget()
         self._history_layout = QVBoxLayout(self._history_widget)
@@ -200,7 +205,7 @@ class SagePopup(QWidget):
         row.addWidget(attach_btn)
 
         self._input = _ChatInput()
-        self._input.setPlaceholderText("Write something\u2026 end with ? to ask a question")
+        self._input.setPlaceholderText("Type a note or end with ? to ask a question")
         self._input.setStyleSheet(f"""
             QTextEdit {{
                 background: {_SURFACE};
