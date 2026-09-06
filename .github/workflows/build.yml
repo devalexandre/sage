@@ -362,10 +362,36 @@ jobs:
           name: macos-build
           path: dist/Sage-${{ env.VERSION }}-macOS.dmg
 
+  # ── Bundle all platforms into a single zip ───────────────────────────────
+  bundle-all:
+    needs: [metadata, build-linux, build-arch, build-windows, build-macos]
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.metadata.outputs.version }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Bundle into a single zip
+        run: |
+          mkdir -p bundle
+          cp artifacts/linux-build/Sage-${VERSION}-x86_64.AppImage bundle/
+          cp artifacts/linux-build/${{ env.APP_NAME }}_${VERSION}_amd64.deb bundle/
+          cp artifacts/arch-build/${{ env.APP_NAME }}-${VERSION}-*-x86_64.pkg.tar.zst bundle/
+          cp artifacts/windows-build/Sage-${VERSION}.msix bundle/
+          cp artifacts/macos-build/Sage-${VERSION}-macOS.dmg bundle/
+          cd bundle && zip -r ../Sage-${VERSION}-all-platforms.zip .
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: all-platforms-zip
+          path: Sage-${{ env.VERSION }}-all-platforms.zip
+
   # ── GitHub Release (only on tag push) ──────────────────────────────────────
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [metadata, build-linux, build-arch, build-windows, build-macos]
+    needs: [metadata, build-linux, build-arch, build-windows, build-macos, bundle-all]
     runs-on: ubuntu-latest
     env:
       VERSION: ${{ needs.metadata.outputs.version }}
@@ -383,4 +409,5 @@ jobs:
             artifacts/arch-build/${{ env.APP_NAME }}-${{ env.VERSION }}-*-x86_64.pkg.tar.zst
             artifacts/windows-build/Sage-${{ env.VERSION }}.msix
             artifacts/macos-build/Sage-${{ env.VERSION }}-macOS.dmg
+            artifacts/all-platforms-zip/Sage-${{ env.VERSION }}-all-platforms.zip
           generate_release_notes: true
