@@ -99,6 +99,15 @@ def _build_model(conf: dict):
             api_key=api_key,
         )
 
+    if provider == "maritaca":
+        from agno.models.openai import OpenAILike
+        return OpenAILike(
+            id=conf.get("maritaca_model", "sabia-4") or "sabia-4",
+            base_url=conf.get("maritaca_base_url", "https://chat.maritaca.ai/api"),
+            api_key=conf.get("maritaca_api_key", "").strip() or None,
+            temperature=0.0,
+        )
+
     # Default: OpenAI
     api_key = conf.get("openai_api_key", "").strip()
     if api_key:

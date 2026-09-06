@@ -19,7 +19,7 @@ def _build_defaults() -> dict:
         "data_migration_version": 0,
         "license_key": "",
         "device_id": "",
-        "api_url": "https://sage-api-efi8.onrender.com",
+        "api_url": "https://sage-api-39eh.onrender.com",
         # Model provider
         "provider": "openai",
         # OpenAI
@@ -35,6 +35,10 @@ def _build_defaults() -> dict:
         "vllm_base_url": "http://localhost:8000/v1",
         "vllm_model": "",
         "vllm_api_key": "",
+        # Maritaca AI (OpenAI-compatible)
+        "maritaca_base_url": "https://chat.maritaca.ai/api",
+        "maritaca_model": "sabia-4",
+        "maritaca_api_key": "",
         # Hotkey
         "hotkey": "F10",
         # Language
@@ -73,7 +77,12 @@ def load() -> dict:
     if CONFIG_PATH.exists():
         try:
             data = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
-            return {**defaults, **data}
+            merged = {**defaults, **data}
+            # api_url is not user-configurable; always take the current
+            # code default so backend migrations take effect on update,
+            # instead of being pinned forever by a stale saved value.
+            merged["api_url"] = defaults["api_url"]
+            return merged
         except Exception:
             pass
     return defaults

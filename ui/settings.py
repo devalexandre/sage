@@ -49,6 +49,7 @@ _ALL_PROVIDERS = [
     ("Ollama",     "ollama"),
     ("LM Studio",  "lmstudio"),
     ("vLLM",       "vllm"),
+    ("Maritaca AI", "maritaca"),
 ]
 
 
@@ -515,6 +516,51 @@ class SageSettings(QWidget):
         self._vllm_save_btn, self._vllm_status = _save_row(vlay)
         self._vllm_save_btn.clicked.connect(self._save_vllm)
         lay.addWidget(self._vllm_frame)
+
+        # ── Maritaca AI (OpenAI-compatible) ────────────────────────────────────
+        self._maritaca_frame = QFrame()
+        mtlay = QVBoxLayout(self._maritaca_frame)
+        mtlay.setContentsMargins(0, 0, 0, 0)
+        mtlay.setSpacing(6)
+
+        mtlay.addWidget(_field_label("Base URL"))
+        self._maritaca_url = QLineEdit()
+        self._maritaca_url.setPlaceholderText("https://chat.maritaca.ai/api")
+        self._maritaca_url.setStyleSheet(_input_style())
+        mtlay.addWidget(self._maritaca_url)
+
+        mtlay.addWidget(_field_label("API Key"))
+        maritaca_key_row = QHBoxLayout()
+        self._maritaca_key = QLineEdit()
+        self._maritaca_key.setEchoMode(QLineEdit.EchoMode.Password)
+        self._maritaca_key.setPlaceholderText("Your Maritaca API key")
+        self._maritaca_key.setStyleSheet(_input_style())
+        maritaca_key_row.addWidget(self._maritaca_key)
+        self._maritaca_eye_btn = QPushButton("\U0001f441")
+        self._maritaca_eye_btn.setFixedSize(34, 34)
+        self._maritaca_eye_btn.setCheckable(True)
+        self._maritaca_eye_btn.setStyleSheet(_eye_btn_style())
+        self._maritaca_eye_btn.toggled.connect(self._toggle_maritaca_key_visibility)
+        maritaca_key_row.addWidget(self._maritaca_eye_btn)
+        mtlay.addLayout(maritaca_key_row)
+
+        mtlay.addWidget(_field_label("Model"))
+        self._maritaca_model_combo = QComboBox()
+        self._maritaca_model_combo.setEditable(True)
+        self._maritaca_model_combo.addItems([
+            "sabia-4",
+            "sabia-4-thinking",
+            "sabia-4-thinking-br-sp",
+            "sabia-4-br-sp",
+            "sabiazinho-4",
+            "sabiazinho-4-br-sp",
+        ])
+        self._maritaca_model_combo.setStyleSheet(_combo_style())
+        mtlay.addWidget(self._maritaca_model_combo)
+
+        self._maritaca_save_btn, self._maritaca_status = _save_row(mtlay)
+        self._maritaca_save_btn.clicked.connect(self._save_maritaca)
+        lay.addWidget(self._maritaca_frame)
 
         lay.addStretch()
         return tab
@@ -1019,6 +1065,7 @@ class SageSettings(QWidget):
         self._ollama_frame.setVisible(key == "ollama")
         self._lmstudio_frame.setVisible(key == "lmstudio")
         self._vllm_frame.setVisible(key == "vllm")
+        self._maritaca_frame.setVisible(key == "maritaca")
 
     def _current_provider_key(self) -> str:
         idx = self._provider_combo.currentIndex()
@@ -1080,6 +1127,10 @@ class SageSettings(QWidget):
         mode = QLineEdit.EchoMode.Normal if visible else QLineEdit.EchoMode.Password
         self._qdrant_key_input.setEchoMode(mode)
 
+    def _toggle_maritaca_key_visibility(self, visible: bool) -> None:
+        mode = QLineEdit.EchoMode.Normal if visible else QLineEdit.EchoMode.Password
+        self._maritaca_key.setEchoMode(mode)
+
     # ── save handlers ─────────────────────────────────────────────────────────
     def _save_and_reset(self, patch: dict, status: QLabel) -> None:
         conf = cfg.load()
@@ -1120,6 +1171,14 @@ class SageSettings(QWidget):
             "vllm_model":    self._vllm_model_combo.currentText(),
             "vllm_api_key":  self._vllm_key.text().strip(),
         }, self._vllm_status)
+
+    def _save_maritaca(self) -> None:
+        self._save_and_reset({
+            "provider":          "maritaca",
+            "maritaca_base_url": self._maritaca_url.text().strip() or "https://chat.maritaca.ai/api",
+            "maritaca_model":    self._maritaca_model_combo.currentText().strip() or "sabia-4",
+            "maritaca_api_key":  self._maritaca_key.text().strip(),
+        }, self._maritaca_status)
 
     def _save_hotkey(self) -> None:
         hotkey = self._hotkey_input.text().strip()
@@ -1364,6 +1423,15 @@ class SageSettings(QWidget):
             if self._vllm_model_combo.findText(saved_vllm) < 0:
                 self._vllm_model_combo.addItem(saved_vllm)
             self._vllm_model_combo.setCurrentText(saved_vllm)
+
+        # Maritaca AI
+        self._maritaca_url.setText(conf.get("maritaca_base_url", "https://chat.maritaca.ai/api"))
+        self._maritaca_key.setText(conf.get("maritaca_api_key", ""))
+        saved_maritaca = conf.get("maritaca_model", "sabia-4")
+        if saved_maritaca:
+            if self._maritaca_model_combo.findText(saved_maritaca) < 0:
+                self._maritaca_model_combo.addItem(saved_maritaca)
+            self._maritaca_model_combo.setCurrentText(saved_maritaca)
 
         # Documents (RAG)
         self._docs_path_input.setText(conf.get("documents_path", ""))
